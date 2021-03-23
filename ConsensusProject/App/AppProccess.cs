@@ -1,5 +1,6 @@
 ﻿using ConsensusProject.Abstractions;
 using ConsensusProject.Messages;
+using ConsensusProject.Utils;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -14,7 +15,7 @@ namespace ConsensusProject.App
         private PerfectLink _perfectLink;
         private Config _config;
         private AppLogger _logger;
-
+        private List<Transaction> _transactions = new List<Transaction>();
         public ConcurrentDictionary<string, Message> _messagesMap;
         public ConcurrentDictionary<string, AppSystem> AppSystems;
 
@@ -56,35 +57,40 @@ namespace ConsensusProject.App
                         }
                         else if (message.Type == Message.Types.Type.AppPropose)
                         {
-                            if (!AppSystems.ContainsKey(message.SystemId))
-                            {
-                                if (
-                                        !AppSystems.TryAdd(
+                            if (
+                                    !AppSystems.TryAdd(
+                                        message.SystemId,
+                                        new AppSystem
+                                        (
                                             message.SystemId,
-                                            new AppSystem
-                                            (
-                                                message.SystemId,
-                                                _config,
-                                                this,
-                                                message.AppPropose.Processes.ToList()
-                                            )
+                                            _config,
+                                            this,
+                                            message.AppPropose.Processes.ToList()
                                         )
-                                    ) throw new Exception("Error adding the system in app propose.");
-                                Message ucPropose = new Message
-                                {
-                                    MessageUuid = Guid.NewGuid().ToString(),
-                                    Type = Message.Types.Type.UcPropose,
-                                    SystemId = message.SystemId,
-                                    AbstractionId = "uc",
-
-                                    UcPropose = new UcPropose
-                                    {
-                                        Value = new Value { Defined = true, V = message.AppPropose.Value.V }
-                                    }
-                                };
-                                EnqueMessage(ucPropose);
-                                DequeMessage(message);
+                                    )
+                                ) 
+                            {
+                                _logger.LogInfo($"The process is already assigned to the system with Id={message.SystemId}!");
                             }
+                            else
+                            {
+                                _logger.LogInfo($"New system with Id={message.SystemId} added to the process!");
+                            }
+
+                            Message ucPropose = new Message
+                            {
+                                MessageUuid = Guid.NewGuid().ToString(),
+                                Type = Message.Types.Type.UcPropose,
+                                SystemId = message.SystemId,
+                                AbstractionId = "uc",
+
+                                UcPropose = new UcPropose
+                                {
+                                    Value = message.AppPropose.Value.Clone()
+                                }
+                            };
+                            EnqueMessage(ucPropose);
+                            DequeMessage(message);
                             continue;
                         }
                         else if (message.Type == Message.Types.Type.UcDecide)
@@ -99,6 +105,13 @@ namespace ConsensusProject.App
                                     Value = message.UcDecide.Value
                                 }
                             };
+
+                            _transactions.Add(message.UcDecide.Value.Tx);
+
+                            _logger.LogInfo($"Consensus for transaction with Id={message.UcDecide.Value.Tx.TxId} ended.");
+
+                            PrintAccounts();
+                            PrintTransactions();
 
                             EnqueMessage(appDecide);
                             DequeMessage(message);
@@ -119,6 +132,39 @@ namespace ConsensusProject.App
 
                 if(Messages.Count == 0) Thread.Sleep(1000);
             }
+        }
+
+        private void PrintAccounts()
+        {
+            var accounts = new Dictionary<string, double>();
+            foreach (var tx in _transactions)
+            {
+                if (!accounts.ContainsKey(tx.DstAcc))
+                {
+                    accounts[tx.DstAcc] = tx.Amount;
+                }
+                else
+                {
+                    accounts[tx.SrcAcc] -= tx.Amount;
+                    accounts[tx.DstAcc] += tx.Amount;
+                }
+            }
+            var output = "\n-----------ACCOUNTS----------\n";
+            output += accounts.ToList().ToStringTable(
+                new string[] { "ACCOUNT", "AMOUNT" },
+                p => p.Key, p => p.Value
+                );
+            _logger.LogInfo(output);
+        }
+
+        private void PrintTransactions()
+        {
+            var output = "\n-----------TRANSACTIONS----------\n";
+            output += _transactions.ToStringTable(
+                new string[] { "TRANSACTION ID", "SOURCE ACCOUNT", "DESTINATION ACCOUNT", "AMOUNT", },
+                p => p.TxId, p => p.SrcAcc, p => p.DstAcc, p => p.Amount
+                );
+            _logger.LogInfo(output);
         }
 
         public void DequeMessage(Message message)
