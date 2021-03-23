@@ -51,19 +51,19 @@ namespace ConsensusProject.Abstractions
             }
             switch (message)
             {
-                case Message m when m.AbstractionId == "ep" && m.Type == Message.Types.Type.EpPropose:
+                case Message m when m.Type == Message.Types.Type.EpPropose:
                     return HandleEpPropose(m);
-                case Message m when m.AbstractionId == "beb" && m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EpRead:
+                case Message m when m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EpRead:
                     return HandleEpRead(m);
-                case Message m when m.AbstractionId == "pl" && m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EpState:
+                case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EpState:
                     return HandleEpState(m);
-                case Message m when m.AbstractionId == "beb" && m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EpWrite:
+                case Message m when m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EpWrite:
                     return HandleEpWrite(m);
-                case Message m when m.AbstractionId == "pl" && m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EpAccept:
+                case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EpAccept:
                     return HandleEpAccept(m);
-                case Message m when m.AbstractionId == "beb" && m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EpDecided:
+                case Message m when m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EpDecided:
                     return HandleEpDecided(m);
-                case Message m when m.AbstractionId == "ep" && m.Type == Message.Types.Type.EpAbort:
+                case Message m when m.Type == Message.Types.Type.EpAbort:
                     return HandleEpAbort(m);
                 default:
                     return false;
@@ -72,11 +72,12 @@ namespace ConsensusProject.Abstractions
 
         private bool HandleEpPropose(Message message)
         {
+            _logger.LogInfo($"Trying to handler the message type {Message.Types.Type.EpPropose}.");
             if (IsLeader)
             {
-                _logger.LogInfo($"Handling the message type {Message.Types.Type.EpPropose}.");
-
+                _logger.LogInfo($"LEADER handling the message type {Message.Types.Type.EpPropose}.");
                 _tmpVal = message.EpPropose.Value;
+                _currentState.Value = _tmpVal.Clone();
 
                 Message read = new Message
                 {
@@ -124,7 +125,7 @@ namespace ConsensusProject.Abstractions
                         SystemId = _appSystem.SystemId,
                         Type = Message.Types.Type.EpState,
                         EpState = _currentState.Clone()
-                    }
+                    },
                 }
             };
 
@@ -136,9 +137,12 @@ namespace ConsensusProject.Abstractions
         {
             if (IsLeader)
             {
-                _logger.LogInfo($"Handling the message type {Message.Types.Type.EpState}.");
+                var sender = _systemProcesses.Find(it => it.Host == message.PlDeliver.Sender.Host && it.Port == message.PlDeliver.Sender.Port);
+                if (sender == null) return false;
+                
+                _logger.LogInfo($"Handling the message type {Message.Types.Type.EpState}. Received state from {sender.Owner}-{sender.Owner} with rank {sender.Rank}");
 
-                _states[message.PlDeliver.Sender.Rank] = message.PlDeliver.Message.EpState;
+                _states[sender.Rank] = message.PlDeliver.Message.EpState;
 
                 HandleMajorityHit();
 
@@ -149,8 +153,10 @@ namespace ConsensusProject.Abstractions
 
         private void HandleMajorityHit()
         {
-            if(_states.Values.Count > _appSystem.NrOfProcesses / 2)
+            _logger.LogInfo($"Checking if majority is hit ({_states.Values.Count} > {_appSystem.NrOfProcesses / 2}).");
+            if (_states.Values.Count > _appSystem.NrOfProcesses / 2)
             {
+                _logger.LogInfo($"Majority hit! Creating the message type {Message.Types.Type.EpWrite}.");
                 EpState_ maxState = GetHighestState(_states.Values.ToList());
 
                 if(maxState.Value.Defined)
@@ -200,6 +206,7 @@ namespace ConsensusProject.Abstractions
 
         private bool HandleEpWrite(Message message)
         {
+            _logger.LogInfo($"Handling the message type {Message.Types.Type.EpWrite}.");
             _currentState = new EpState_
             {
                 ValueTimestamp = _ets,
@@ -249,6 +256,7 @@ namespace ConsensusProject.Abstractions
         {
             if (_accepted > _appSystem.NrOfProcesses / 2)
             {
+                _logger.LogInfo($"Majority accepted! Creating the message type {Message.Types.Type.EpDecided}.");
                 Message decided = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
