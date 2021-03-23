@@ -44,11 +44,11 @@ namespace ConsensusProject.Abstractions
         {
             switch (message)
             {
-                case Message m when m.AbstractionId == "eld" && m.Type == Message.Types.Type.EldTrust:
+                case Message m when m.Type == Message.Types.Type.EldTrust:
                     return HandleEldTrust(m);
-                case Message m when m.AbstractionId == "beb" && m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EcNewEpoch:
+                case Message m when m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EcNewEpoch:
                     return HandleEcNewEpoch(m);
-                case Message m when m.AbstractionId == "pl" && m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EcNack:
+                case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EcNack:
                     return HandleEcNach(m);
                 default:
                     return false;
