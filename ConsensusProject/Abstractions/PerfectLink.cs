@@ -90,7 +90,6 @@ namespace ConsensusProject.Abstractions
         {
             try
             {
-                _logger.LogInfo(message.Type.ToString());
                 using (TcpClient client = new TcpClient(host, port))
                 {
                     using (var ms = new MemoryStream())
@@ -104,7 +103,10 @@ namespace ConsensusProject.Abstractions
                         stream.Write(finalArray, 0, finalArray.Length);
                     }
                 }
-                _logger.LogInfo($"Sent to {host}:{port} a message ");
+
+                if (message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatReply && message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatRequest)
+                    _logger.LogInfo($"Sent to {host}:{port} a {message.NetworkMessage.Message.Type} message ");
+
                 return true;
             }
             catch (Exception e)
@@ -177,8 +179,8 @@ namespace ConsensusProject.Abstractions
                     };
                 }
                 
-                
-                _logger.LogInfo($"Received from {message.NetworkMessage.SenderHost}:{message.NetworkMessage.SenderListeningPort} a message.");
+                if (message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatReply && message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatRequest)
+                    _logger.LogInfo($"Received from {message.NetworkMessage.SenderHost}:{message.NetworkMessage.SenderListeningPort} a {message.NetworkMessage.Message.Type} message.");
                 
                 _appProccess.EnqueMessage(newMessage);
                 
