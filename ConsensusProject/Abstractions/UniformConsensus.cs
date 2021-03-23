@@ -23,7 +23,6 @@ namespace ConsensusProject.Abstractions
         private int _newTs;
         private ProcessId _newLeader;
 
-
         public UniformConsensus(string id, Config config, AppProccess appProcess, AppSystem appSystem, List<ProcessId> systemProcesses, EpochChange epochChange)
         {
             _id = id;
@@ -56,9 +55,9 @@ namespace ConsensusProject.Abstractions
         {
             switch (message)
             {
-                case Message m when m.AbstractionId == "uc" && m.Type == Message.Types.Type.UcPropose:
+                case Message m when m.Type == Message.Types.Type.UcPropose:
                     return HandleUcPropose(m);
-                case Message m when m.AbstractionId == "ec" && m.Type == Message.Types.Type.EcStartEpoch:
+                case Message m when m.Type == Message.Types.Type.EcStartEpoch:
                     return HandleEcStartEpoch(m);
                 case Message m when m.Type == Message.Types.Type.EpAborted && _ets == m.EpAborted.Ets:
                     return HandleEpAborted(m);
@@ -149,6 +148,7 @@ namespace ConsensusProject.Abstractions
         {
             if(_currentLeader.Equals(_appSystem.CurrentProccess) && _value.Defined && _proposed == false)
             {
+                _logger.LogInfo($"LEADER creating a {Message.Types.Type.EpPropose} message.");
                 _proposed = true;
                 Message propose = new Message
                 {
