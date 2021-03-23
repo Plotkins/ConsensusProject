@@ -43,9 +43,9 @@ namespace ConsensusProject.Abstractions
         {
             switch (message)
             {
-                case Message m when m.AbstractionId == "pl" && m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EpfdHeartbeatRequest:
+                case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EpfdHeartbeatRequest:
                     return HandleEpfdHearthBeatRequest(m);
-                case Message m when m.AbstractionId == "pl" && m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EpfdHeartbeatReply:
+                case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EpfdHeartbeatReply:
                     return HandleEpfdHearthBeatReply(m);
                 default:
                     return false;
