@@ -9,7 +9,7 @@ namespace ConsensusProject
         {
             try
             {
-                bool debug = false;
+                bool debug = true;
 
                 string HubIpAddress;
                 int HubPort;
@@ -20,7 +20,6 @@ namespace ConsensusProject
 
                 if (debug)
                 {
-
                     HubIpAddress = "127.0.0.1";
                     HubPort = 5000;
                     NodeIpAddress = "127.0.0.1";
@@ -52,9 +51,16 @@ namespace ConsensusProject
                     EpochIncrement = 1
                 };
 
-                AppProccess appProccess1 = new AppProccess(config1);
+                if (debug)
+                {
+                    NodeHandler nodeHandler = new NodeHandler(config1);
+                }
+                else
+                {
+                    AppProccess appProccess1 = new AppProccess(config1);
 
-                appProccess1.Run();
+                    appProccess1.Run();
+                }
             }
             catch (Exception ex)
             {

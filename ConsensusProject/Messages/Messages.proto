@@ -103,6 +103,15 @@ pl    PerfectLink (use TCP)
 */
 
 // Data structures
+
+message DeployNodes {
+    repeated ProcessId processes = 1;
+}
+
+message StopNodes {
+    repeated ProcessId processes = 1;
+}
+
 message ProcessId {
     string host = 1;  // String containing either domain name  or IP (most likely)
     int32 port = 2;
@@ -312,6 +321,9 @@ message Message {
 
         PL_DELIVER = 70;
         PL_SEND = 71;
+
+        DEPLOY_NODES = 72;
+        STOP_NODES = 73;
     }
 
     Type type = 1;
@@ -356,4 +368,7 @@ message Message {
 
     PlDeliver plDeliver = 70;
     PlSend plSend = 71;
+
+    DeployNodes deployNodes = 72;
+    StopNodes stopNodes = 73;
 }
