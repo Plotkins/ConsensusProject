@@ -1,10 +1,8 @@
 ﻿using ConsensusProject.App;
 using ConsensusProject.Messages;
+using ConsensusProject.Utils;
 using Google.Protobuf;
 using System;
-using System.IO;
-using System.Linq;
-using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 
@@ -15,8 +13,8 @@ namespace ConsensusProject.Abstractions
         private string _id;
         private Config _config;
         private AppLogger _logger;
-        private TcpListener _server = null;
         private AppProccess _appProccess;
+        private TcpWrapper _tcpWrapper;
 
         public PerfectLink(string id, AppProccess appProccess, Config c)
         {
@@ -25,11 +23,9 @@ namespace ConsensusProject.Abstractions
             _appProccess = appProccess;
             _logger = new AppLogger(_config, id);
 
-            IPAddress localAddr = IPAddress.Parse(_config.NodeIpAddress);
-            _server = new TcpListener(localAddr, _config.NodePort);
-            
+            _tcpWrapper = new TcpWrapper(_config.NodeIpAddress, _config.NodePort);
             new Thread(() => {
-                _server.Start();
+                _tcpWrapper.Start();
                 StartListener(); 
             }).Start();
         }
@@ -90,19 +86,9 @@ namespace ConsensusProject.Abstractions
         {
             try
             {
-                using (TcpClient client = new TcpClient(host, port))
-                {
-                    using (var ms = new MemoryStream())
-                    using (NetworkStream stream = client.GetStream())
-                    {
-                        var byteArray = message.ToByteArray();
-
-                        var bufferLength = BitConverter.GetBytes(byteArray.Length);
-                        Array.Reverse(bufferLength);
-                        var finalArray = bufferLength.Concat(byteArray).ToArray();
-                        stream.Write(finalArray, 0, finalArray.Length);
-                    }
-                }
+                var byteArray = message.ToByteArray();
+               
+                _tcpWrapper.Send(host, port, byteArray);
 
                 if (message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatReply && message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatRequest)
                     _logger.LogInfo($"Sent to {host}:{port} a {message.NetworkMessage.Message.Type} message ");
@@ -122,36 +108,20 @@ namespace ConsensusProject.Abstractions
             {
                 while (true)
                 {
-                    TcpClient client = _server.AcceptTcpClient();
+                    var client = _tcpWrapper.Receive();
                     HandleDeivce(client);
                 }
             }
             catch (SocketException e)
             {
                 _logger.LogError($"SocketException: {e}");
-                _server.Stop();
             }
         }
-        private void HandleDeivce(Object obj)
+        private void HandleDeivce(byte[] byteContent)
         {
-            TcpClient client = (TcpClient)obj;
             try
             {
-                Message message;
-                using (NetworkStream stream = client.GetStream())
-                {
-                    byte[] bufferLength = new byte[4];
-                    stream.Read(bufferLength, 0, 4);
-                    Array.Reverse(bufferLength);
-
-                    var length = BitConverter.ToInt32(bufferLength);
-
-                    byte[] objectArray = new byte[length];
-
-                    stream.Read(objectArray, 0, length);
-
-                    message = Message.Parser.ParseFrom(objectArray);
-                }
+                Message message = Message.Parser.ParseFrom(byteContent);
 
                 Message newMessage;
                 if (message.NetworkMessage.Message.Type == Message.Types.Type.AppPropose)
@@ -188,10 +158,6 @@ namespace ConsensusProject.Abstractions
             catch (Exception e)
             {
                 _logger.LogError($"Exception: {e}");
-            }
-            finally
-            {
-                client.Close();
             }
         }
     }
