@@ -1,4 +1,5 @@
-﻿using ConsensusProject.App;
+﻿using ConsensusProject;
+using ConsensusProject.App;
 using ConsensusProject.Messages;
 using ConsensusProject.Utils;
 using System;
@@ -33,12 +34,14 @@ namespace Hub
                 Console.Write("command> ");
                 string cmd = Console.ReadLine();
 
-                switch (cmd)
+                string[] cmdList = cmd.Split();
+
+                switch (cmdList[0])
                 {
                     case "help":
                         PrintMainMenu();
                         break;
-                    case "tx":
+                    case "transfer":
                         MakeTransaction();
                         break;
                     case "deposit":
@@ -47,10 +50,108 @@ namespace Hub
                     case "nodes":
                         ListAllNodes();
                         break;
+                    case "deploy":
+                        Deploy(cmdList[1..]);
+                        break;
+                    case "stop":
+                        Stop(cmdList[1..]);
+                        break;
                     default:
                         Console.WriteLine("Incorrect command");
                         break;
                 }
+            }
+        }
+
+        public void Deploy(string[] args)
+        {
+            try
+            {
+                var alias = args[0];
+                var ports = Array.ConvertAll(args[1..], it => int.Parse(it));
+                var index = _processes.Count() + 1;
+
+                Message txMsg = new Message
+                {
+                    MessageUuid = Guid.NewGuid().ToString(),
+                    Type = Message.Types.Type.NetworkMessage,
+                    SystemId = Guid.NewGuid().ToString(),
+                    NetworkMessage = new NetworkMessage
+                    {
+                        SenderHost = _config.HubIpAddress,
+                        SenderListeningPort = _config.HubPort,
+                        Message = new Message
+                        {
+                            MessageUuid = Guid.NewGuid().ToString(),
+                            SystemId = Guid.NewGuid().ToString(),
+                            Type = Message.Types.Type.DeployNodes,
+                            DeployNodes = new DeployNodes()
+                        }
+                    }
+                };
+
+                foreach (var port in ports)
+                {
+                    var newNode = new ProcessId {
+                        Host = _config.HubIpAddress,
+                        Port = port, 
+                        Owner = alias,
+                        Index = index
+                    };
+                    txMsg.NetworkMessage.Message.DeployNodes.Processes.Add(newNode);
+                    index++;
+                }
+
+                _broker.SendMessage(txMsg, _config.HubIpAddress, 3000);
+            }
+            catch
+            {
+                Console.WriteLine("Try again!");
+            }
+        }
+
+        public void Stop(string[] args)
+        {
+            try
+            {
+                var alias = args[0];
+                var indeces = Array.ConvertAll(args[1..], it => int.Parse(it));
+
+                Message txMsg = new Message
+                {
+                    MessageUuid = Guid.NewGuid().ToString(),
+                    Type = Message.Types.Type.NetworkMessage,
+                    SystemId = Guid.NewGuid().ToString(),
+                    NetworkMessage = new NetworkMessage
+                    {
+                        SenderHost = _config.HubIpAddress,
+                        SenderListeningPort = _config.HubPort,
+                        Message = new Message
+                        {
+                            MessageUuid = Guid.NewGuid().ToString(),
+                            SystemId = Guid.NewGuid().ToString(),
+                            Type = Message.Types.Type.StopNodes,
+                            StopNodes = new StopNodes()
+                        }
+                    }
+                };
+
+                foreach (var index in indeces)
+                {
+                    var newNode = new ProcessId
+                    {
+                        Host = _config.HubIpAddress,
+                        Owner = alias,
+                        Index = index
+                    };
+                    txMsg.NetworkMessage.Message.StopNodes.Processes.Add(newNode);
+                }
+
+                _broker.SendMessage(txMsg, _config.HubIpAddress, 3000);
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Try again!");
             }
         }
 
@@ -95,7 +196,7 @@ namespace Hub
                 Rank = _processes.Count
             };
 
-            Console.WriteLine($"{newProcess.Owner}-{newProcess.Port}: listening to {newProcess.Host}:{newProcess.Port}");
+            _logger.LogInfo($"{newProcess.Owner}-{newProcess.Port}: listening to {newProcess.Host}:{newProcess.Port}");
 
             _processes.Add(newProcess);
         }
@@ -211,12 +312,14 @@ namespace Hub
         private void PrintMainMenu()
         {
             string menu = @"
-    tx - Make a transaction
-    deposit - Make a deposit
-    nodes - List all nodes
+    transfer        Make a transaction
+    deposit         Make a deposit
+    nodes           List all nodes
+    deploy <alias> <port> ...      Deploy one or more nodes
+    stop <alias> <index> ...
             ";
 
-            System.Console.WriteLine(menu);
+            Console.WriteLine(menu);
         }
     }
 }
