@@ -196,9 +196,15 @@ namespace Hub
                 Rank = _processes.Count
             };
 
-            _logger.LogInfo($"{newProcess.Owner}-{newProcess.Port}: listening to {newProcess.Host}:{newProcess.Port}");
-
-            _processes.Add(newProcess);
+            
+            var node = _processes.FirstOrDefault(n => n.Owner == newProcess.Owner && n.Index == newProcess.Index);
+            if (node == null)
+            {
+                _processes.Add(newProcess);
+                _logger.LogInfo($"{newProcess.Owner}-{newProcess.Port}: listening to {newProcess.Host}:{newProcess.Port}");
+            }
+            else
+                _logger.LogInfo($"{newProcess.Owner}-{newProcess.Port}: already registered");
         }
 
         private void MakeTransaction()
