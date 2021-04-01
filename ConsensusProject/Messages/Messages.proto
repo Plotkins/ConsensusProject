@@ -132,6 +132,7 @@ message Transaction {
 	string from = 2;
 	string to = 3;
 	double amount = 4;
+    string shard = 5;
 }
 
 // Messages and events
