@@ -1,20 +1,19 @@
 ﻿using ConsensusProject.Messages;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace ConsensusProject.App
 {
     public class Config
     {
-        public string HubIpAddress { get; set; }
-        public int HubPort { get; set; }
+        public string HubIpAddress { get; set; } = "127.0.0.1";
+        public int HubPort { get; set; } = 5000;
+        public string NodeHandlerIpAddress { get; set; } = "127.0.0.1";
+        public int NodeHandlerPort { get; set; } = 3000;
         public string NodeIpAddress { get; set; }
         public int NodePort { get; set; }
         public string Alias { get; set; }
         public int ProccessIndex { get; set; }
-        public int Delay { get; set; }
-        public int EpochIncrement { get; set; }
+        public int Delay { get; set; } = 100;
+        public int EpochIncrement { get; set; } = 1;
         public bool IsEqual(ProcessId processId)
         {
             return processId.Owner == Alias &&
