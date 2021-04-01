@@ -1,7 +1,7 @@
-﻿using ConsensusProject;
-using ConsensusProject.App;
+﻿using ConsensusProject.App;
 using ConsensusProject.Messages;
 using ConsensusProject.Utils;
+using Google.Protobuf.Collections;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,6 +9,13 @@ using System.Threading;
 
 namespace Hub
 {
+    public class ShardItem
+    {
+        public string Alias { get; set; }
+        public int StartPort { get; set; }
+        public int EndPort { get; set; }
+    }
+
     public class HubServer
     {
         private List<ProcessId> _processes = new List<ProcessId>();
@@ -27,6 +34,8 @@ namespace Hub
             }).Start();
         }
 
+        private string NewId { get { return Guid.NewGuid().ToString().Substring(0, 5); } }
+
         public void Run()
         {
             while (true)
@@ -34,7 +43,7 @@ namespace Hub
                 Console.Write("command> ");
                 string cmd = Console.ReadLine();
 
-                string[] cmdList = cmd.Split();
+                string[] cmdList = cmd.Split(new char[] { ' ' }, 2);
 
                 switch (cmdList[0])
                 {
@@ -42,19 +51,19 @@ namespace Hub
                         PrintMainMenu();
                         break;
                     case "transfer":
-                        MakeTransaction();
+                        MakeTransaction(cmdList[1]);
                         break;
                     case "deposit":
-                        MakeDeposit();
+                        MakeDeposit(cmdList[1]);
                         break;
                     case "nodes":
                         ListAllNodes();
                         break;
                     case "deploy":
-                        Deploy(cmdList[1..]);
+                        Deploy(cmdList[1]);
                         break;
                     case "stop":
-                        Stop(cmdList[1..]);
+                        Stop(cmdList[1]);
                         break;
                     default:
                         Console.WriteLine("Incorrect command");
@@ -63,46 +72,47 @@ namespace Hub
             }
         }
 
-        public void Deploy(string[] args)
+        private List<ShardItem> DecomposeShardArgs(string args) =>
+            args
+                .Split("-s")
+                .Where(it => !string.IsNullOrWhiteSpace(it))
+                .ToList()
+                .ConvertAll(it => it.Trim().Split())
+                .ConvertAll(it => new ShardItem
+                {
+                    Alias = it[0],
+                    StartPort = int.Parse(it[1].Split("-")[0]),
+                    EndPort = int.Parse(it[1].Split("-")[1])
+                });
+
+        public void Deploy(string argsString)
         {
             try
             {
-                var alias = args[0];
-                var ports = Array.ConvertAll(args[1..], it => int.Parse(it));
-                var index = _processes.Count() + 1;
+                var shards = DecomposeShardArgs(argsString);
 
-                Message txMsg = new Message
+                Message deploy = new Message
                 {
-                    MessageUuid = Guid.NewGuid().ToString(),
+                    MessageUuid = NewId,
                     Type = Message.Types.Type.NetworkMessage,
-                    SystemId = Guid.NewGuid().ToString(),
+                    SystemId = NewId,
                     NetworkMessage = new NetworkMessage
                     {
                         SenderHost = _config.HubIpAddress,
                         SenderListeningPort = _config.HubPort,
                         Message = new Message
                         {
-                            MessageUuid = Guid.NewGuid().ToString(),
-                            SystemId = Guid.NewGuid().ToString(),
+                            MessageUuid = NewId,
+                            SystemId = NewId,
                             Type = Message.Types.Type.DeployNodes,
                             DeployNodes = new DeployNodes()
                         }
                     }
                 };
 
-                foreach (var port in ports)
-                {
-                    var newNode = new ProcessId {
-                        Host = _config.HubIpAddress,
-                        Port = port, 
-                        Owner = alias,
-                        Index = index
-                    };
-                    txMsg.NetworkMessage.Message.DeployNodes.Processes.Add(newNode);
-                    index++;
-                }
+                AssignShardProcessesToMessage(shards, deploy.NetworkMessage.Message.DeployNodes.Processes);
 
-                _broker.SendMessage(txMsg, _config.HubIpAddress, 3000);
+                _broker.SendMessage(deploy, _config.NodeHandlerIpAddress, _config.NodeHandlerPort);
             }
             catch
             {
@@ -110,48 +120,73 @@ namespace Hub
             }
         }
 
-        public void Stop(string[] args)
+        public void Stop(string argsString)
         {
             try
             {
-                var alias = args[0];
-                var indeces = Array.ConvertAll(args[1..], it => int.Parse(it));
+                var shards = DecomposeShardArgs(argsString);
 
-                Message txMsg = new Message
+                Message stop = new Message
                 {
-                    MessageUuid = Guid.NewGuid().ToString(),
+                    MessageUuid = NewId,
                     Type = Message.Types.Type.NetworkMessage,
-                    SystemId = Guid.NewGuid().ToString(),
+                    SystemId = NewId,
                     NetworkMessage = new NetworkMessage
                     {
                         SenderHost = _config.HubIpAddress,
                         SenderListeningPort = _config.HubPort,
                         Message = new Message
                         {
-                            MessageUuid = Guid.NewGuid().ToString(),
-                            SystemId = Guid.NewGuid().ToString(),
+                            MessageUuid = NewId,
+                            SystemId = NewId,
                             Type = Message.Types.Type.StopNodes,
                             StopNodes = new StopNodes()
                         }
                     }
                 };
 
-                foreach (var index in indeces)
-                {
-                    var newNode = new ProcessId
-                    {
-                        Host = _config.HubIpAddress,
-                        Owner = alias,
-                        Index = index
-                    };
-                    txMsg.NetworkMessage.Message.StopNodes.Processes.Add(newNode);
-                }
+                AssignShardProcessesToMessage(shards, stop.NetworkMessage.Message.StopNodes.Processes);
 
-                _broker.SendMessage(txMsg, _config.HubIpAddress, 3000);
+                _broker.SendMessage(stop, _config.NodeHandlerIpAddress, _config.NodeHandlerPort);
             }
             catch (Exception)
             {
                 Console.WriteLine("Try again!");
+            }
+        }
+
+        private void AssignShardProcessesToMessage(List<ShardItem> shards, RepeatedField<ProcessId> processes)
+        {
+            foreach (var shard in shards)
+            {
+                if (shard.StartPort > shard.EndPort)
+                {
+                    Console.WriteLine($"Wrong arguments for shard '{shard.Alias}': ports must pe positive and start port lower or equal to end port!");
+                    continue;
+                }
+
+                bool doesOverlap = shards.TrueForAll(it => it.Alias != shard.Alias && !(it.EndPort < shard.StartPort || shard.EndPort < it.StartPort));
+
+                if (doesOverlap)
+                {
+                    Console.WriteLine($"Shard '{shard.Alias}' is overlapping with one of the other shards!");
+                    continue;
+                }
+
+                var index = 0;
+                for (int port = shard.StartPort; port <= shard.EndPort; port++)
+                {
+                    var newNode = new ProcessId
+                    {
+                        Host = _config.HubIpAddress,
+                        Port = port,
+                        Owner = shard.Alias,
+                        Index = index
+                    };
+
+                    processes.Add(newNode);
+                    index++;
+                }
             }
         }
 
@@ -196,7 +231,6 @@ namespace Hub
                 Rank = _processes.Count
             };
 
-            
             var node = _processes.FirstOrDefault(n => n.Owner == newProcess.Owner && n.Index == newProcess.Index);
             if (node == null)
             {
@@ -207,7 +241,7 @@ namespace Hub
                 _logger.LogInfo($"{newProcess.Owner}-{newProcess.Port}: already registered");
         }
 
-        private void MakeTransaction()
+        private void MakeTransaction(string argsString)
         {
             Console.Write("Source account: ");
             var srcAccount = Console.ReadLine();
@@ -223,7 +257,7 @@ namespace Hub
                     Defined = true,
                     Tx = new Transaction
                     {
-                        TxId = Guid.NewGuid().ToString().Substring(0, 5),
+                        TxId = NewId,
                         SrcAcc = srcAccount,
                         DstAcc = dstAccount,
                         Amount = amount
@@ -234,17 +268,17 @@ namespace Hub
             appPropose.Processes.AddRange(_processes);
             Message txMsg = new Message
             {
-                MessageUuid = Guid.NewGuid().ToString(),
+                MessageUuid = NewId,
                 Type = Message.Types.Type.NetworkMessage,
-                SystemId = Guid.NewGuid().ToString(),
+                SystemId = NewId,
                 NetworkMessage = new NetworkMessage
                 {
                     SenderHost = _config.HubIpAddress,
                     SenderListeningPort = _config.HubPort,
                     Message = new Message
                     {
-                        MessageUuid = Guid.NewGuid().ToString(),
-                        SystemId = Guid.NewGuid().ToString(),
+                        MessageUuid = NewId,
+                        SystemId = NewId,
                         Type = Message.Types.Type.AppPropose,
                         AppPropose = appPropose
                     }
@@ -258,7 +292,7 @@ namespace Hub
             }
         }
 
-        private void MakeDeposit()
+        private void MakeDeposit(string argsString)
         {
             Console.Write("Destination account: ");
             var dstAccount = Console.ReadLine();
@@ -273,7 +307,7 @@ namespace Hub
                     Defined = true,
                     Tx = new Transaction
                     {
-                        TxId = Guid.NewGuid().ToString().Substring(0, 5),
+                        TxId = NewId,
                         SrcAcc = srcAccount,
                         DstAcc = dstAccount,
                         Amount = amount
@@ -284,17 +318,17 @@ namespace Hub
             appPropose.Processes.AddRange(_processes);
             Message txMsg = new Message
             {
-                MessageUuid = Guid.NewGuid().ToString(),
+                MessageUuid = NewId,
                 Type = Message.Types.Type.NetworkMessage,
-                SystemId = Guid.NewGuid().ToString(),
+                SystemId = NewId,
                 NetworkMessage = new NetworkMessage
                 {
                     SenderHost = _config.HubIpAddress,
                     SenderListeningPort = _config.HubPort,
                     Message = new Message
                     {
-                        MessageUuid = Guid.NewGuid().ToString(),
-                        SystemId = Guid.NewGuid().ToString(),
+                        MessageUuid = NewId,
+                        SystemId = NewId,
                         Type = Message.Types.Type.AppPropose,
                         AppPropose = appPropose
                     }
@@ -318,11 +352,12 @@ namespace Hub
         private void PrintMainMenu()
         {
             string menu = @"
-    transfer        Make a transaction
-    deposit         Make a deposit
-    nodes           List all nodes
-    deploy <alias> <port> ...      Deploy one or more nodes
-    stop <alias> <index> ...
+    help
+    nodes
+    transfer -f <nickname> -t <nickname> -a <amount>
+    deposit -t <nickname> -a <amount> -s <alias>
+    deploy -s <alias> <port>-<port> ...
+    stop -s <alias> <port>-<port> ...
             ";
 
             Console.WriteLine(menu);
