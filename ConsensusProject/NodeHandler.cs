@@ -13,11 +13,11 @@ namespace ConsensusProject
         private Config _config;
         private TcpWrapper _tcpWrapper;
 
-        public NodeHandler(Config config)
+        public NodeHandler()
         {
-            _config = config;
+            _config = new Config();
 
-            _tcpWrapper = new TcpWrapper(_config.NodeIpAddress, 3000);
+            _tcpWrapper = new TcpWrapper(_config.NodeHandlerIpAddress, _config.NodeHandlerPort);
             Listening();
         }
 

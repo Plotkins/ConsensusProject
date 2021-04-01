@@ -3,7 +3,7 @@ using System;
 
 namespace ConsensusProject
 {
-    class Program
+    public class Program
     {
         static void Main(string[] args)
         {
@@ -11,55 +11,28 @@ namespace ConsensusProject
             {
                 bool debug = true;
 
-                string HubIpAddress;
-                int HubPort;
-                string NodeIpAddress;
-                int nodePort1;
-                string alias;
-                int index;
-
-                if (debug)
-                {
-                    HubIpAddress = "127.0.0.1";
-                    HubPort = 5000;
-                    NodeIpAddress = "127.0.0.1";
-                    nodePort1 = 5006;
-                    alias = "george";
-                    index = 3;
-                }
-                else
+                if (!debug)
                 {
                     if (args.Length != 6) throw new Exception("Usage: <hubHost> <hubPort> <nodeHost> <nodePort> <alias> <index>");
 
-                    HubIpAddress = args[0];
-                    HubPort = Int32.Parse(args[1]);
-                    NodeIpAddress = args[2];
-                    nodePort1 = Int32.Parse(args[3]);
-                    alias = args[4];
-                    index = Int32.Parse(args[5]);
-                }
+                    var config = new Config()
+                    {
+                        HubIpAddress = args[0],
+                        HubPort = Int32.Parse(args[1]),
+                        NodeIpAddress = args[2],
+                        NodePort = Int32.Parse(args[3]),
+                        Alias = args[4],
+                        ProccessIndex = Int32.Parse(args[5]),
+                        Delay = 100,
+                        EpochIncrement = 1,
+                    };
+                    AppProccess appProccess1 = new AppProccess(config);
 
-                Config config1 = new Config
-                {
-                    HubIpAddress = HubIpAddress,
-                    HubPort = HubPort,
-                    NodeIpAddress = NodeIpAddress,
-                    NodePort = nodePort1,
-                    Alias = alias,
-                    ProccessIndex = index,
-                    Delay = 100,
-                    EpochIncrement = 1
-                };
-
-                if (debug)
-                {
-                    NodeHandler nodeHandler = new NodeHandler(config1);
+                    appProccess1.Run();
                 }
                 else
                 {
-                    AppProccess appProccess1 = new AppProccess(config1);
-
-                    appProccess1.Run();
+                    NodeHandler nodeHandler = new NodeHandler();
                 }
             }
             catch (Exception ex)
