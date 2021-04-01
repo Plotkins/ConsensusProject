@@ -106,9 +106,9 @@ namespace ConsensusProject.App
                                 }
                             };
 
-                            _transactions.Add(message.UcDecide.Value.Tx);
+                            _transactions.Add(message.UcDecide.Value.Transaction);
 
-                            _logger.LogInfo($"Consensus for transaction with Id={message.UcDecide.Value.Tx.TxId} ended.");
+                            _logger.LogInfo($"Consensus for transaction with Id={message.UcDecide.Value.Transaction.Id} ended.");
 
                             PrintAccounts();
                             PrintTransactions();
@@ -139,14 +139,14 @@ namespace ConsensusProject.App
             var accounts = new Dictionary<string, double>();
             foreach (var tx in _transactions)
             {
-                if (!accounts.ContainsKey(tx.DstAcc))
+                if (!accounts.ContainsKey(tx.To))
                 {
-                    accounts[tx.DstAcc] = tx.Amount;
+                    accounts[tx.To] = tx.Amount;
                 }
                 else
                 {
-                    accounts[tx.SrcAcc] -= tx.Amount;
-                    accounts[tx.DstAcc] += tx.Amount;
+                    accounts[tx.From] -= tx.Amount;
+                    accounts[tx.To] += tx.Amount;
                 }
             }
             var output = "\n-----------ACCOUNTS----------\n";
@@ -162,7 +162,7 @@ namespace ConsensusProject.App
             var output = "\n-----------TRANSACTIONS----------\n";
             output += _transactions.ToStringTable(
                 new string[] { "TRANSACTION ID", "SOURCE ACCOUNT", "DESTINATION ACCOUNT", "AMOUNT", },
-                p => p.TxId, p => p.SrcAcc, p => p.DstAcc, p => p.Amount
+                p => p.Id, p => p.From, p => p.To, p => p.Amount
                 );
             _logger.LogInfo(output);
         }

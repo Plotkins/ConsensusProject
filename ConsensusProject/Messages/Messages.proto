@@ -123,14 +123,14 @@ message ProcessId {
 
 message Value {       // Needed to model the undefined value that appears in the textbook
     bool defined = 1;
-    int32 v = 2;      // Value; ignore if defined == false
-	Transaction tx = 3;
+	Transaction transaction = 3;
+    int64 unixEpoch = 5;
 }
 
 message Transaction {
-	string txId = 1;
-	string srcAcc = 2;
-	string dstAcc = 3;
+	string id = 1;
+	string from = 2;
+	string to = 3;
 	double amount = 4;
 }
 

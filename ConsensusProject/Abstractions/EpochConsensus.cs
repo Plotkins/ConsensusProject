@@ -196,7 +196,7 @@ namespace ConsensusProject.Abstractions
             EpState_ max = new EpState_ { Value = new Value { Defined = false } };
             foreach(var state in states)
             {
-                if(state.Value.Defined && state.Value.V > max.Value.V)
+                if(state.Value.Defined && state.Value.UnixEpoch > max.Value.UnixEpoch)
                 {
                     max = state.Clone();
                 }
