@@ -133,6 +133,13 @@ message Transaction {
 	string to = 3;
 	double amount = 4;
     string shard = 5;
+    Status status = 6;
+
+    enum Status {
+        PENDING = 0;
+        ACCEPTED = 1;
+        REJECTED = 2;
+    }
 }
 
 // Messages and events
