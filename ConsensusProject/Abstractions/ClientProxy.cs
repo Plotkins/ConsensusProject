@@ -45,28 +45,69 @@ namespace ConsensusProject.Abstractions
         {
             switch (message)
             {
+                case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.NewNodeAcknowledged:
+                    return HandleNewNodeAcknowledged(message);
                 case Message m when m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.NewNodeRegistered:
                     return HandleNewNodeRegistered(message);
                 case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.AppRegistrationReply:
                     return HandleRegistrationReply(message);
                 case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.AppPropose:
                     return HandleAppPropose(message);
-                case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.UcDecide:
+                case Message m when m.Type == Message.Types.Type.UcDecide:
                     return HandleUcDecide(message);
                 default:
                     return false;
             }
         }
 
+        public bool HandleNewNodeAcknowledged(Message message)
+        {
+            foreach (var node in message.PlDeliver.Message.NewNodeAcknowledged.Processes)
+            {
+                _appProccess.AddNewNode(node);
+            }
+
+            return true;
+        }
+
         private bool HandleNewNodeRegistered(Message message)
         {
-            _appProccess.AddNewNode(message.BebDeliver.Message.NewNodeRegistered.Process);
+            _logger.LogInfo($"Handling NewNodeRegistered");
+            var newNode = message.BebDeliver.Message.NewNodeRegistered.Process;
+
+            _appProccess.AddNewNode(newNode);
+
+            _logger.LogInfo($"{newNode.Owner}/{newNode.Index} is the new node added. {_appProccess.NetworkNodes.Count} total nodes available.");
+
+            var ack = new NewNodeAcknowledged();
+            ack.Processes.AddRange(_appProccess.NetworkNodes);
+
+            var reply = new Message
+            {
+                MessageUuid = Guid.NewGuid().ToString(),
+                AbstractionId = "pl",
+                Type = Message.Types.Type.PlSend,
+                PlSend = new PlSend
+                {
+                    Destination = message.BebDeliver.Sender,
+                    Message = new Message
+                    {
+                        MessageUuid = Guid.NewGuid().ToString(),
+                        SystemId = message.SystemId,
+                        Type = Message.Types.Type.NewNodeAcknowledged,
+                        NewNodeAcknowledged = ack
+                    }
+                }
+            };
+
+            _appProccess.EnqueMessage(reply);
 
             return true;
         }
 
         private bool HandleRegistrationReply(Message message)
         {
+            _logger.LogInfo($"Handling RegistrationReply");
             foreach (var process in message.PlDeliver.Message.AppRegistrationReply.Processes)
             {
                 _appProccess.AddNewNode(process);
@@ -79,7 +120,7 @@ namespace ConsensusProject.Abstractions
                 Type = Message.Types.Type.BebBroadcast,
                 BebBroadcast = new BebBroadcast
                 {
-                    Type = BebBroadcast.Types.Type.InterShard,
+                    Type = BebBroadcast.Types.Type.Network,
                     Message = new Message
                     {
                         MessageUuid = Guid.NewGuid().ToString(),
@@ -111,6 +152,8 @@ namespace ConsensusProject.Abstractions
                 _logger.LogInfo($"New system with Id={message.SystemId} added to the process!");
             }
 
+            _appProccess.PrintNetworkNodes();
+
             Message ucPropose = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
@@ -120,7 +163,7 @@ namespace ConsensusProject.Abstractions
 
                 UcPropose = new UcPropose
                 {
-                    Value = message.AppPropose.Value.Clone()
+                    Value = message.PlDeliver.Message.AppPropose.Value.Clone()
                 }
             };
 

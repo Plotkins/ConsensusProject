@@ -107,6 +107,8 @@ namespace ConsensusProject.Abstractions
             {
                 _appProcces.CurrentShardLeader = maxRankProcess;
 
+                _logger.LogInfo($"{maxRankProcess.Owner}/{maxRankProcess.Index} is the new LEADER.");
+
                 BroadcastEldTrustToInternalSystems();
 
                 BroadcastEldShardTrustToExternalShardNodes();

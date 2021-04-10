@@ -103,31 +103,23 @@ namespace ConsensusProject.Abstractions
             {
                 Message message = Message.Parser.ParseFrom(byteContent);
 
-                Message newMessage;
-                if (message.NetworkMessage.Message.Type == Message.Types.Type.AppPropose)
+                Message newMessage = new Message
                 {
-                    newMessage = message.NetworkMessage.Message;
-                }
-                else
-                {
-                    newMessage = new Message
-                    {
-                        MessageUuid = message.MessageUuid,
-                        SystemId = message.SystemId,
-                        AbstractionId = message.AbstractionId,
-                        Type = Message.Types.Type.PlDeliver,
+                    MessageUuid = message.MessageUuid,
+                    SystemId = message.SystemId,
+                    AbstractionId = message.AbstractionId,
+                    Type = Message.Types.Type.PlDeliver,
 
-                        PlDeliver = new PlDeliver
+                    PlDeliver = new PlDeliver
+                    {
+                        Message = message.NetworkMessage.Message,
+                        Sender = new ProcessId
                         {
-                            Message = message.NetworkMessage.Message,
-                            Sender = new ProcessId
-                            {
-                                Host = message.NetworkMessage.SenderHost,
-                                Port = message.NetworkMessage.SenderListeningPort,
-                            }
-                        },
-                    };
-                }
+                            Host = message.NetworkMessage.SenderHost,
+                            Port = message.NetworkMessage.SenderListeningPort,
+                        }
+                    },
+                };
                 
                 if (message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatReply && message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatRequest)
                     _logger.LogInfo($"Received from {message.NetworkMessage.SenderHost}:{message.NetworkMessage.SenderListeningPort} a {message.NetworkMessage.Message.Type} message.");

@@ -13,13 +13,12 @@ namespace ConsensusProject.Abstractions
         private AppSystem _appSystem;
         private Config _config;
         private AppLogger _logger;
-        private List<ProcessId> _systemProcesses;
 
         //state
         private int _ets;
         private EpState_ _currentState;
         private Value _tmpVal;
-        private Dictionary<int, EpState_> _states;
+        private Dictionary<int, EpState_> _states = new Dictionary<int, EpState_>();
         private int _accepted;
         private bool _aborted;
 
@@ -35,7 +34,6 @@ namespace ConsensusProject.Abstractions
             _ets = ets;
             _currentState = state;
             _tmpVal = new Value { Defined = false };
-            _states = new Dictionary<int, EpState_>();
             _accepted = 0;
             _aborted = false;
         }
@@ -132,9 +130,10 @@ namespace ConsensusProject.Abstractions
         }
         private bool HandleEpState(Message message)
         {
+            _logger.LogInfo($"Chacking if is leader: {_appProcces.IsLeader}");
             if (_appProcces.IsLeader)
             {
-                var sender = _systemProcesses.Find(it => it.Host == message.PlDeliver.Sender.Host && it.Port == message.PlDeliver.Sender.Port);
+                var sender = _appProcces.ShardNodes.Find(it => it.Host == message.PlDeliver.Sender.Host && it.Port == message.PlDeliver.Sender.Port);
                 if (sender == null) return false;
                 
                 _logger.LogInfo($"Handling the message type {Message.Types.Type.EpState}. Received state from {sender.Owner}-{sender.Owner} with rank {sender.Rank}");

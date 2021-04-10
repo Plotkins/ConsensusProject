@@ -148,6 +148,10 @@ message NewNodeRegistered {
     ProcessId process = 1;
 }
 
+message NewNodeAcknowledged {
+    repeated ProcessId processes = 1;
+}
+
 message AppRegistrationRequest { // Send to hub upon process startup: Message(NetworkMessage(Message(AppRegistration)))
     string owner = 1;     // Some short alias
     int32 index = 2;      // Process index: must be 1, 2, or 3
@@ -312,7 +316,9 @@ message Message {
     enum Type {
         NETWORK_MESSAGE = 0;
 
+        NEW_NODE_ACKNOWLEDGED = 2;
         NEW_NODE_REGISTERED = 3;
+
         APP_REGISTRATION_REQUEST = 4;
         APP_REGISTRATION_REPLY = 5;
         APP_PROPOSE = 6;
@@ -372,6 +378,7 @@ message Message {
     UcPropose ucPropose = 11;
     
     NewNodeRegistered NewNodeRegistered = 12;
+    NewNodeAcknowledged NewNodeAcknowledged = 13;
 
     EpAbort epAbort = 20;
     EpAborted epAborted = 21;

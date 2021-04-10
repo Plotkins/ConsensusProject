@@ -16,8 +16,8 @@ namespace ConsensusProject.App
         private List<Transaction> _transactions = new List<Transaction>();
         private ConcurrentDictionary<string, Message> _messagesMap = new ConcurrentDictionary<string, Message>();
         private ConcurrentDictionary<string, List<ProcessId>> _networkNodes = new ConcurrentDictionary<string, List<ProcessId>>();
-        private Dictionary<string, Abstraction> _abstractions = new Dictionary<string, Abstraction>();
-        private Dictionary<string, ProcessId> _shardLeaders = new Dictionary<string, ProcessId>();
+        private ConcurrentDictionary<string, Abstraction> _abstractions = new ConcurrentDictionary<string, Abstraction>();
+        private ConcurrentDictionary<string, ProcessId> _shardLeaders = new ConcurrentDictionary<string, ProcessId>();
 
         public ConcurrentDictionary<string, AppSystem> AppSystems { get; set; } = new ConcurrentDictionary<string, AppSystem>();
         
@@ -69,7 +69,7 @@ namespace ConsensusProject.App
 
         public ProcessId CurrentShardLeader 
         { 
-            get { return _shardLeaders[_config.Alias]; }
+            get { return _shardLeaders.TryGetValue(_config.Alias, out ProcessId process) ? process : null; }
             set { _shardLeaders[_config.Alias] = value; }
         }
 
@@ -88,7 +88,8 @@ namespace ConsensusProject.App
             if (_networkNodes.ContainsKey(process.Owner) && !_networkNodes[process.Owner].Any(it => it.Port == process.Port && it.Host == process.Host))
             {
                 _networkNodes[process.Owner].Add(process);
-            } else
+            }
+            else
             {
                 _networkNodes[process.Owner] = new List<ProcessId> { process };
             }
@@ -119,15 +120,15 @@ namespace ConsensusProject.App
 
         public void InitializeCommunicationAbstractions()
         {
-            _abstractions.Add("pl", new PerfectLink("pl", _config, EnqueMessage));
-            _abstractions.Add("beb", new BestEffortBroadcast("beb", _config, this));
-            _abstractions.Add("cp", new ClientProxy(_config, this));
+            _abstractions.TryAdd("pl", new PerfectLink("pl", _config, EnqueMessage));
+            _abstractions.TryAdd("beb", new BestEffortBroadcast("beb", _config, this));
+            _abstractions.TryAdd("cp", new ClientProxy(_config, this));
         }
 
         public void InitializeLeaderMaintenanceAbstractions()
         {
-            _abstractions.Add("eld", new EventualLeaderDetector("eld", _config, this));
-            _abstractions.Add("epfd", new EventuallyPerfectFailureDetector("epfd", _config, this));
+            _abstractions.TryAdd("eld", new EventualLeaderDetector("eld", _config, this));
+            _abstractions.TryAdd("epfd", new EventuallyPerfectFailureDetector("epfd", _config, this));
         }
 
         public void PrintTransactions()
@@ -136,6 +137,16 @@ namespace ConsensusProject.App
             output += _transactions.ToStringTable(
                 new string[] { "TRANSACTION ID", "SOURCE ACCOUNT", "DESTINATION ACCOUNT", "AMOUNT", },
                 p => p.Id, p => p.From, p => p.To, p => p.Amount
+                );
+            _logger.LogInfo(output);
+        }
+
+        public void PrintNetworkNodes()
+        {
+            var output = "\n-----------NETWORK NODES----------\n";
+            output += NetworkNodes.ToStringTable(
+                new string[] { "HOST", "PORT", "SHARD ID", "INDEX", "RANK", "IS LEADER"},
+                p => p.Host, p => p.Port, p => p.Owner, p => p.Index, p => p.Rank, p =>_shardLeaders.TryGetValue(p.Owner, out ProcessId leader) ? leader.Equals(p) : false
                 );
             _logger.LogInfo(output);
         }

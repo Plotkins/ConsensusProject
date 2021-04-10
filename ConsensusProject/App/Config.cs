@@ -8,8 +8,8 @@ namespace ConsensusProject.App
         public int HubPort { get; set; } = 5000;
         public string NodeHandlerIpAddress { get; set; } = "127.0.0.1";
         public int NodeHandlerPort { get; set; } = 3000;
-        public string NodeIpAddress { get; set; }
-        public int NodePort { get; set; }
+        public string NodeIpAddress { get; set; } = "127.0.0.1";
+        public int NodePort { get; set; } = 5000;
         public string Alias { get; set; }
         public int ProccessIndex { get; set; }
         public int Delay { get; set; } = 100;

@@ -27,10 +27,8 @@ namespace Hub
 
     public class HubServer
     {
-        private ConcurrentDictionary<string, Message> _messagesMap = new ConcurrentDictionary<string, Message>();
         private Dictionary<string, TransactionReported> transactions = new Dictionary<string, TransactionReported>();
         private List<ProcessId> _processes = new List<ProcessId>();
-        private PerfectLink _perfectLink;
         private MessageBroker _broker;
         private AppLogger _logger;
         private Config _config;
@@ -39,7 +37,6 @@ namespace Hub
         {
             _config = config;
             _logger = new AppLogger(config, "hub");
-            _perfectLink = new PerfectLink("pl", _config, EnqueMessage);
             _broker = new MessageBroker(config);
             new Thread(() =>
             {
@@ -217,7 +214,7 @@ namespace Hub
             foreach (var process in shardProcesses)
             {
                 _logger.LogInfo($"Process {process.Owner}-{process.Index} will propose transaction Id={appPropose.Value.Transaction.Id}");
-                _perfectLink.SendMessage(deposit, process.Host, process.Port);
+                _broker.SendMessage(deposit, process.Host, process.Port);
             }
         }
 
@@ -225,13 +222,13 @@ namespace Hub
         {
             while (true)
             {
-                if (Messages.Count == 0)
+                if (_broker.Messages.Count == 0)
                 {
                     Thread.Sleep(1000);
                     continue;
                 }
 
-                var msg = Messages.First();
+                var msg = _broker.Messages.First();
 
                 switch (msg.NetworkMessage.Message.Type)
                 {
@@ -248,7 +245,7 @@ namespace Hub
                         break;
                 }
 
-                DequeMessage(msg);
+                _broker.DequeMessage(msg);
             }
         }
 
@@ -276,10 +273,11 @@ namespace Hub
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
                     AbstractionId = "pl",
-                    Type = Message.Types.Type.PlSend,
-                    PlSend = new PlSend
+                    Type = Message.Types.Type.NetworkMessage,
+                    NetworkMessage = new NetworkMessage
                     {
-                        Destination = newProcess,
+                        SenderHost = _config.HubIpAddress,
+                        SenderListeningPort = _config.NodeHandlerPort,
                         Message = new Message
                         {
                             MessageUuid = Guid.NewGuid().ToString(),
@@ -289,7 +287,7 @@ namespace Hub
                     }
                 };
 
-                EnqueMessage(appRegisterReply);
+                _broker.SendMessage(appRegisterReply, newProcess.Host, newProcess.Port);
             }
             else
                 _logger.LogInfo($"{newProcess.Owner}-{newProcess.Port}: already registered");
@@ -378,21 +376,6 @@ namespace Hub
             ";
 
             Console.WriteLine(menu);
-        }
-
-        public void DequeMessage(Message message)
-        {
-            if (!_messagesMap.TryRemove(message.MessageUuid, out _)) throw new Exception("Error removing the message.");
-        }
-
-        public void EnqueMessage(Message message)
-        {
-            if (!_messagesMap.TryAdd(message.MessageUuid, message)) throw new Exception("Error adding the message.");
-        }
-
-        public ICollection<Message> Messages
-        {
-            get { return _messagesMap.Values; }
         }
     }
 }
