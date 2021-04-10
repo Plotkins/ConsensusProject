@@ -5,7 +5,7 @@ using System.Text;
 
 namespace ConsensusProject.Utils
 {
-    static class Extensions
+    public static class Extensions
     {
         public static void ForEach<T>(this IEnumerable<T> ie, Action<T> action)
         {
@@ -14,5 +14,7 @@ namespace ConsensusProject.Utils
                 action(i);
             }
         }
+
+        public static string NewId => Guid.NewGuid().ToString();
     }
 }

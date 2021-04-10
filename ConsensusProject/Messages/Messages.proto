@@ -115,7 +115,7 @@ message StopNodes {
 message ProcessId {
     string host = 1;  // String containing either domain name  or IP (most likely)
     int32 port = 2;
-    string owner = 3; // Short alias or acronym of the owner of the process
+    string owner = 3; // Short alias or acronym of the owner of the process. Will be refered as the shard ID.
     int32 index = 4;  // Process index within the owner's processes. Must be 1, 2, or 3
     int32 rank = 5;   // Populated by the hub when initiating consensus with AppPropose. Do not calculate your own rank,
                       // just use this so that all nodes have the same values
@@ -144,16 +144,23 @@ message Transaction {
 
 // Messages and events
 // APP
-message AppRegistration { // Send to hub upon process startup: Message(NetworkMessage(Message(AppRegistration)))
+message NewNodeRegistered {
+    ProcessId process = 1;
+}
+
+message AppRegistrationRequest { // Send to hub upon process startup: Message(NetworkMessage(Message(AppRegistration)))
     string owner = 1;     // Some short alias
     int32 index = 2;      // Process index: must be 1, 2, or 3
+}
+
+message AppRegistrationReply { // Send to hub upon process startup: Message(NetworkMessage(Message(AppRegistration)))
+    repeated ProcessId processes = 1; // List of processes involved in the consensus algorithm (PI set)
 }
 
 message AppPropose { // Received from the HUB as Message(NetworkMessage(Message(AppPropose))). Should be handled by the
                      // application layer. No abstractions other than APP should be active before this is received,
                      // because this will define the PI set Value value = 1; // Random value chosen by the HUB
     Value value = 1;
-    repeated ProcessId processes = 2; // List of processes involved in the consensus algorithm (PI set)
 }
 
 message AppDecide {  // Upon receiving UcDecide, send to HUB as Message(NetworkMessage(Message(AppDecide)))
@@ -217,7 +224,6 @@ message EcNack_ {
 // In the Init event or constructor, initialize "trusted" with the max-rank process in PI
 message EcStartEpoch {
     int32 newTimestamp = 1;
-    ProcessId newLeader = 2;
 }
 
 message EcNewEpoch_ {
@@ -226,7 +232,15 @@ message EcNewEpoch_ {
 
 // BEB
 message BebBroadcast {
+    enum Type {
+        INTRA_SHARD = 0;
+        INTER_SHARD = 1;
+        NETWORK = 2;
+    }
+
     Message message = 1;
+    Type type = 2;
+
 }
 
 message BebDeliver {
@@ -239,6 +253,10 @@ message EldTimeout {
 }
 
 message EldTrust {
+    ProcessId process = 1;
+}
+
+message EldShardTrust {
     ProcessId process = 1;
 }
 
@@ -294,7 +312,9 @@ message Message {
     enum Type {
         NETWORK_MESSAGE = 0;
 
-        APP_REGISTRATION = 5;
+        NEW_NODE_REGISTERED = 3;
+        APP_REGISTRATION_REQUEST = 4;
+        APP_REGISTRATION_REPLY = 5;
         APP_PROPOSE = 6;
         APP_DECIDE = 7;
 
@@ -320,6 +340,7 @@ message Message {
 
         ELD_TIMEOUT = 50;
         ELD_TRUST = 51;
+        ELD_SHARD_TRUST = 52;
 
         EPFD_TIMEOUT = 60;
         EPFD_HEARTBEAT_REQUEST = 61;
@@ -341,12 +362,16 @@ message Message {
 
     NetworkMessage networkMessage = 5;
 
-    AppRegistration appRegistration = 6;
-    AppPropose appPropose = 7;
-    AppDecide appDecide = 8;
+    AppRegistrationRequest appRegistrationRequest = 6;
+    AppRegistrationReply appRegistrationReply = 7;
+
+    AppPropose appPropose = 8;
+    AppDecide appDecide = 9;
 
     UcDecide ucDecide = 10;
     UcPropose ucPropose = 11;
+    
+    NewNodeRegistered NewNodeRegistered = 12;
 
     EpAbort epAbort = 20;
     EpAborted epAborted = 21;
@@ -367,6 +392,7 @@ message Message {
 
     EldTimeout eldTimeout = 50;
     EldTrust eldTrust = 51;
+    EldShardTrust eldShardTrust = 52;
 
     EpfdTimeout epfdTimeout = 60;
     EpfdHeartbeatRequest_ epfdHeartbeatRequest_ = 61;

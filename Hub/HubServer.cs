@@ -1,8 +1,10 @@
-﻿using ConsensusProject.App;
+﻿using ConsensusProject.Abstractions;
+using ConsensusProject.App;
 using ConsensusProject.Messages;
 using ConsensusProject.Utils;
 using Google.Protobuf.Collections;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -25,8 +27,10 @@ namespace Hub
 
     public class HubServer
     {
+        private ConcurrentDictionary<string, Message> _messagesMap = new ConcurrentDictionary<string, Message>();
         private Dictionary<string, TransactionReported> transactions = new Dictionary<string, TransactionReported>();
         private List<ProcessId> _processes = new List<ProcessId>();
+        private PerfectLink _perfectLink;
         private MessageBroker _broker;
         private AppLogger _logger;
         private Config _config;
@@ -35,6 +39,7 @@ namespace Hub
         {
             _config = config;
             _logger = new AppLogger(config, "hub");
+            _perfectLink = new PerfectLink("pl", _config, EnqueMessage);
             _broker = new MessageBroker(config);
             new Thread(() =>
             {
@@ -188,8 +193,6 @@ namespace Hub
             var txReported = new TransactionReported { Transaction = appPropose.Value.Transaction };
             transactions.Add(txReported.Transaction.Id, txReported);
 
-            var shardProcesses = _processes.Where(it => it.Owner == shard).ToList();
-            appPropose.Processes.AddRange(shardProcesses);
             Message deposit = new Message
             {
                 MessageUuid = NewId,
@@ -209,11 +212,12 @@ namespace Hub
                 }
             };
 
+            var shardProcesses = _processes.Where(it => it.Owner == shard).ToList();
             txReported.StopWatch.Start();
             foreach (var process in shardProcesses)
             {
                 _logger.LogInfo($"Process {process.Owner}-{process.Index} will propose transaction Id={appPropose.Value.Transaction.Id}");
-                _broker.SendMessage(deposit, process.Host, process.Port);
+                _perfectLink.SendMessage(deposit, process.Host, process.Port);
             }
         }
 
@@ -221,13 +225,13 @@ namespace Hub
         {
             while (true)
             {
-                if (_broker.Messages.Count == 0)
+                if (Messages.Count == 0)
                 {
                     Thread.Sleep(1000);
                     continue;
                 }
 
-                var msg = _broker.Messages.First();
+                var msg = Messages.First();
 
                 switch (msg.NetworkMessage.Message.Type)
                 {
@@ -236,7 +240,7 @@ namespace Hub
                         _logger.LogInfo($"Transaction Id={msg.NetworkMessage.Message.AppDecide.Value.Transaction.Id} accepted by {process.Owner}-{process.Index}");
                         transactions[msg.NetworkMessage.Message.AppDecide.Value.Transaction.Id].StopWatch.Stop();
                         break;
-                    case Message.Types.Type.AppRegistration:
+                    case Message.Types.Type.AppRegistrationRequest:
                         RegisterProcess(msg);
                         break;
                     default:
@@ -244,7 +248,7 @@ namespace Hub
                         break;
                 }
 
-                _broker.DequeMessage(msg);
+                DequeMessage(msg);
             }
         }
 
@@ -254,8 +258,8 @@ namespace Hub
             {
                 Host = message.NetworkMessage.SenderHost,
                 Port = message.NetworkMessage.SenderListeningPort,
-                Owner = message.NetworkMessage.Message.AppRegistration.Owner,
-                Index = message.NetworkMessage.Message.AppRegistration.Index,
+                Owner = message.NetworkMessage.Message.AppRegistrationRequest.Owner,
+                Index = message.NetworkMessage.Message.AppRegistrationRequest.Index,
                 Rank = _processes.Count
             };
 
@@ -264,6 +268,28 @@ namespace Hub
             {
                 _processes.Add(newProcess);
                 _logger.LogInfo($"{newProcess.Owner}-{newProcess.Port}: listening to {newProcess.Host}:{newProcess.Port}");
+
+                var reply = new AppRegistrationReply();
+                reply.Processes.AddRange(_processes);
+
+                Message appRegisterReply = new Message
+                {
+                    MessageUuid = Guid.NewGuid().ToString(),
+                    AbstractionId = "pl",
+                    Type = Message.Types.Type.PlSend,
+                    PlSend = new PlSend
+                    {
+                        Destination = newProcess,
+                        Message = new Message
+                        {
+                            MessageUuid = Guid.NewGuid().ToString(),
+                            Type = Message.Types.Type.AppRegistrationReply,
+                            AppRegistrationReply = reply
+                        }
+                    }
+                };
+
+                EnqueMessage(appRegisterReply);
             }
             else
                 _logger.LogInfo($"{newProcess.Owner}-{newProcess.Port}: already registered");
@@ -352,6 +378,21 @@ namespace Hub
             ";
 
             Console.WriteLine(menu);
+        }
+
+        public void DequeMessage(Message message)
+        {
+            if (!_messagesMap.TryRemove(message.MessageUuid, out _)) throw new Exception("Error removing the message.");
+        }
+
+        public void EnqueMessage(Message message)
+        {
+            if (!_messagesMap.TryAdd(message.MessageUuid, message)) throw new Exception("Error adding the message.");
+        }
+
+        public ICollection<Message> Messages
+        {
+            get { return _messagesMap.Values; }
         }
     }
 }

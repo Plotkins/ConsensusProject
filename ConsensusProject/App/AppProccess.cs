@@ -11,14 +11,16 @@ namespace ConsensusProject.App
 {
     public class AppProccess
     {
-
-        private PerfectLink _perfectLink;
         private Config _config;
         private AppLogger _logger;
         private List<Transaction> _transactions = new List<Transaction>();
-        public ConcurrentDictionary<string, Message> _messagesMap;
-        public ConcurrentDictionary<string, AppSystem> AppSystems;
+        private ConcurrentDictionary<string, Message> _messagesMap = new ConcurrentDictionary<string, Message>();
+        private ConcurrentDictionary<string, List<ProcessId>> _networkNodes = new ConcurrentDictionary<string, List<ProcessId>>();
+        private Dictionary<string, Abstraction> _abstractions = new Dictionary<string, Abstraction>();
+        private Dictionary<string, ProcessId> _shardLeaders = new Dictionary<string, ProcessId>();
 
+        public ConcurrentDictionary<string, AppSystem> AppSystems { get; set; } = new ConcurrentDictionary<string, AppSystem>();
+        
         public AppProccess(Config config)
         {
             _messagesMap = new ConcurrentDictionary<string, Message>();
@@ -26,22 +28,12 @@ namespace ConsensusProject.App
             _config = config;
             _logger = new AppLogger(config, "AppProccess");
 
-            Message appRegister = new Message
-            {
-                MessageUuid = Guid.NewGuid().ToString(),
-                Type = Message.Types.Type.AppRegistration,
-
-                AppRegistration = new AppRegistration
-                {
-                    Index = _config.ProccessIndex,
-                    Owner = _config.Alias,
-                }
-            };
-
-            EnqueMessage(appRegister);
-
-            _perfectLink = new PerfectLink("pl", this, _config);
+            InitializeCommunicationAbstractions();
         }
+
+        public List<ProcessId> ShardNodes => _networkNodes[_config.Alias];
+        public List<ProcessId> NetworkLeaders => _shardLeaders.Values.ToList();
+        public List<ProcessId> NetworkNodes => _networkNodes.Values.SelectMany(it => it).ToList();
 
         public void Run()
         {
@@ -51,77 +43,12 @@ namespace ConsensusProject.App
                 {
                     foreach (var message in Messages)
                     {
-                        if (_perfectLink.Handle(message))
+                        foreach (var abstraction in _abstractions.Values)
                         {
-                            DequeMessage(message);
-                        }
-                        else if (message.Type == Message.Types.Type.AppPropose)
-                        {
-                            if (
-                                    !AppSystems.TryAdd(
-                                        message.SystemId,
-                                        new AppSystem
-                                        (
-                                            message.SystemId,
-                                            _config,
-                                            this,
-                                            message.AppPropose.Processes.ToList()
-                                        )
-                                    )
-                                ) 
+                            if (abstraction.Handle(message))
                             {
-                                _logger.LogInfo($"The process is already assigned to the system with Id={message.SystemId}!");
+                                DequeMessage(message);
                             }
-                            else
-                            {
-                                _logger.LogInfo($"New system with Id={message.SystemId} added to the process!");
-                            }
-
-                            Message ucPropose = new Message
-                            {
-                                MessageUuid = Guid.NewGuid().ToString(),
-                                Type = Message.Types.Type.UcPropose,
-                                SystemId = message.SystemId,
-                                AbstractionId = "uc",
-
-                                UcPropose = new UcPropose
-                                {
-                                    Value = message.AppPropose.Value.Clone()
-                                }
-                            };
-                            EnqueMessage(ucPropose);
-                            DequeMessage(message);
-                            continue;
-                        }
-                        else if (message.Type == Message.Types.Type.UcDecide)
-                        {
-                            Message appDecide = new Message
-                            {
-                                MessageUuid = Guid.NewGuid().ToString(),
-                                SystemId = message.SystemId,
-                                Type = Message.Types.Type.AppDecide,
-                                AppDecide = new AppDecide
-                                {
-                                    Value = message.UcDecide.Value
-                                }
-                            };
-
-                            _transactions.Add(message.UcDecide.Value.Transaction);
-
-                            _logger.LogInfo($"Consensus for transaction with Id={message.UcDecide.Value.Transaction.Id} ended.");
-
-                            PrintAccounts();
-                            PrintTransactions();
-
-                            EnqueMessage(appDecide);
-                            DequeMessage(message);
-                        }
-                    }
-                    if (AppSystems.Count > 0)
-                    {
-                        foreach (var system in AppSystems.Values)
-                        {
-                            system.EventLoop();
                         }
                     }
                 } 
@@ -134,7 +61,40 @@ namespace ConsensusProject.App
             }
         }
 
-        private void PrintAccounts()
+        public bool IsLeader { get { return CurrentShardLeader.Equals(CurrentProccess); } }
+
+        public ProcessId CurrentProccess => ShardNodes.Find(it => _config.IsEqual(it));
+
+        public ProcessId HubProcess => new ProcessId { Host = _config.HubIpAddress, Port = _config.HubPort };
+
+        public ProcessId CurrentShardLeader 
+        { 
+            get { return _shardLeaders[_config.Alias]; }
+            set { _shardLeaders[_config.Alias] = value; }
+        }
+
+        public void UpdateExternalShardLeader(ProcessId process)
+        {
+            _shardLeaders[process.Owner] = process;
+        }
+
+        public void AddTransaction(Transaction transaction)
+        {
+            _transactions.Add(transaction);
+        }
+
+        public void AddNewNode(ProcessId process)
+        {
+            if (_networkNodes.ContainsKey(process.Owner) && !_networkNodes[process.Owner].Any(it => it.Port == process.Port && it.Host == process.Host))
+            {
+                _networkNodes[process.Owner].Add(process);
+            } else
+            {
+                _networkNodes[process.Owner] = new List<ProcessId> { process };
+            }
+        }
+
+        public void PrintAccounts()
         {
             var accounts = new Dictionary<string, double>();
             foreach (var tx in _transactions)
@@ -157,7 +117,20 @@ namespace ConsensusProject.App
             _logger.LogInfo(output);
         }
 
-        private void PrintTransactions()
+        public void InitializeCommunicationAbstractions()
+        {
+            _abstractions.Add("pl", new PerfectLink("pl", _config, EnqueMessage));
+            _abstractions.Add("beb", new BestEffortBroadcast("beb", _config, this));
+            _abstractions.Add("cp", new ClientProxy(_config, this));
+        }
+
+        public void InitializeLeaderMaintenanceAbstractions()
+        {
+            _abstractions.Add("eld", new EventualLeaderDetector("eld", _config, this));
+            _abstractions.Add("epfd", new EventuallyPerfectFailureDetector("epfd", _config, this));
+        }
+
+        public void PrintTransactions()
         {
             var output = "\n-----------TRANSACTIONS----------\n";
             output += _transactions.ToStringTable(

@@ -13,16 +13,15 @@ namespace ConsensusProject.Abstractions
         private string _id;
         private Config _config;
         private AppLogger _logger;
-        private AppProccess _appProccess;
         private TcpWrapper _tcpWrapper;
+        private Action<Message> _enqueueMessage;
 
-        public PerfectLink(string id, AppProccess appProccess, Config c)
+        public PerfectLink(string id, Config c, Action<Message> enqueueMessage)
         {
             _id = id;
             _config = c;
-            _appProccess = appProccess;
             _logger = new AppLogger(_config, id);
-
+            _enqueueMessage = enqueueMessage;
             _tcpWrapper = new TcpWrapper(_config.NodeIpAddress, _config.NodePort);
             new Thread(() => {
                 _tcpWrapper.Start();
@@ -52,25 +51,6 @@ namespace ConsensusProject.Abstractions
                         SenderHost = _config.NodeIpAddress,
                         SenderListeningPort = _config.NodePort,
                         Message = message.PlSend.Message,
-                    },
-                };
-            }
-            else if(message.Type == Message.Types.Type.AppRegistration || message.Type == Message.Types.Type.AppDecide)
-            {
-                destinationHost = _config.HubIpAddress;
-                destinationPort = _config.HubPort;
-
-                networkMessage = new Message
-                {
-                    MessageUuid = Guid.NewGuid().ToString(),
-                    Type = Message.Types.Type.NetworkMessage,
-                    SystemId = message.SystemId,
-
-                    NetworkMessage = new NetworkMessage
-                    {
-                        SenderHost = _config.NodeIpAddress,
-                        SenderListeningPort = _config.NodePort,
-                        Message = message,
                     },
                 };
             }
@@ -152,7 +132,7 @@ namespace ConsensusProject.Abstractions
                 if (message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatReply && message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatRequest)
                     _logger.LogInfo($"Received from {message.NetworkMessage.SenderHost}:{message.NetworkMessage.SenderListeningPort} a {message.NetworkMessage.Message.Type} message.");
                 
-                _appProccess.EnqueMessage(newMessage);
+                _enqueueMessage(newMessage);
                 
             }
             catch (Exception e)

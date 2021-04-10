@@ -1,8 +1,6 @@
 ﻿using ConsensusProject.App;
 using ConsensusProject.Messages;
-using ConsensusProject.Utils;
 using System;
-using System.Collections.Generic;
 
 namespace ConsensusProject.Abstractions
 {
@@ -13,31 +11,22 @@ namespace ConsensusProject.Abstractions
         private AppSystem _appSystem;
         private Config _config;
         private AppLogger _logger;
-        private List<ProcessId> _systemProcesses;
 
         //state
-        private ProcessId _trusted;
         private int _lastTs;
         private int _ts;
 
-        public EpochChange(string id, Config config, AppProccess appProcess, AppSystem appSystem, List<ProcessId> systemProcesses)
+        public EpochChange(string id, Config config, AppProccess appProcess, AppSystem appSystem)
         {
             _id = id;
             _config = config;
             _logger = new AppLogger(_config, _id, appSystem.SystemId);
             _appProcces = appProcess;
             _appSystem = appSystem;
-            _systemProcesses = systemProcesses;
 
             //state
-            _trusted = AbstractionHelpers.GetMaxRankedProcess(_systemProcesses);
             _lastTs = 0;
             _ts = _appSystem.CurrentProccess.Rank;
-        }
-
-        public ProcessId CurrentLeader
-        {
-            get { return _trusted; }
         }
 
         public bool Handle(Message message)
@@ -46,6 +35,8 @@ namespace ConsensusProject.Abstractions
             {
                 case Message m when m.Type == Message.Types.Type.EldTrust:
                     return HandleEldTrust(m);
+                case Message m when m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EldShardTrust:
+                    return HandleEldShardTrust(m);
                 case Message m when m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EcNewEpoch:
                     return HandleEcNewEpoch(m);
                 case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.EcNack:
@@ -55,12 +46,18 @@ namespace ConsensusProject.Abstractions
             }
         }
 
+        private bool HandleEldShardTrust(Message message)
+        {
+            _appProcces.UpdateExternalShardLeader(message.BebDeliver.Message.EldShardTrust.Process);
+            return true;
+        }
+
         private bool HandleEldTrust(Message message)
         {
             _logger.LogInfo($"Handling the message type {Message.Types.Type.EldTrust}.");
 
-            _trusted = message.EldTrust.Process;
-            if (_trusted.Equals(_appSystem.CurrentProccess))
+            _appProcces.CurrentShardLeader = message.EldTrust.Process;
+            if (_appProcces.CurrentShardLeader.Equals(_appSystem.CurrentProccess))
             {
                 _ts += _config.EpochIncrement;
                 Message newEpoch = new Message
@@ -93,7 +90,7 @@ namespace ConsensusProject.Abstractions
         {
             _logger.LogInfo($"Handling the message type {Message.Types.Type.EcNewEpoch}.");
 
-            if (message.BebDeliver.Sender.Equals(_trusted) && message.BebDeliver.Message.EcNewEpoch.Timestamp > _lastTs)
+            if (message.BebDeliver.Sender.Equals(_appProcces.CurrentShardLeader) && message.BebDeliver.Message.EcNewEpoch.Timestamp > _lastTs)
             {
                 _lastTs = message.BebDeliver.Message.EcNewEpoch.Timestamp;
                 Message startEpoch = new Message
@@ -105,7 +102,6 @@ namespace ConsensusProject.Abstractions
                     EcStartEpoch = new EcStartEpoch
                     {
                         NewTimestamp = _lastTs,
-                        NewLeader = _trusted
                     }
                 };
                 _appProcces.EnqueMessage(startEpoch);
@@ -139,7 +135,7 @@ namespace ConsensusProject.Abstractions
         {
             _logger.LogInfo($"Handling the message type {Message.Types.Type.EcNack}.");
 
-            if (_trusted.Equals(_appSystem.SystemId))
+            if (_appProcces.CurrentShardLeader.Equals(_appSystem.SystemId))
             {
                 _ts += _config.EpochIncrement;
                 Message newEpoch = new Message

@@ -11,10 +11,8 @@ namespace ConsensusProject.Abstractions
     {
         private string _id;
         private AppProccess _appProcces;
-        private AppSystem _appSystem;
         private Config _config;
         private AppLogger _logger;
-        private List<ProcessId> _systemProcesses;
 
         //state
         private List<ProcessId> _alive;
@@ -22,17 +20,15 @@ namespace ConsensusProject.Abstractions
         private int _delay;
 
 
-        public EventuallyPerfectFailureDetector(string id, Config config, AppProccess appProcess, AppSystem appSystem, List<ProcessId> systemProcesses)
+        public EventuallyPerfectFailureDetector(string id, Config config, AppProccess appProcess)
         {
             _id = id;
             _config = config;
-            _logger = new AppLogger(_config, _id, appSystem.SystemId);
+            _logger = new AppLogger(_config, _id);
             _appProcces = appProcess;
-            _appSystem = appSystem;
-            _systemProcesses = systemProcesses;
 
             //state
-            _alive = new List<ProcessId>(systemProcesses);
+            _alive = new List<ProcessId>(_appProcces.ShardNodes);
             _suspected = new List<ProcessId>();
             _delay = _config.Delay;
 
@@ -54,12 +50,11 @@ namespace ConsensusProject.Abstractions
 
         private bool HandleEpfdHearthBeatRequest(Message message)
         {
-            _logger.LogInfo($"Handling the message type {Message.Types.Type.EpfdHeartbeatRequest}.");
+            //_logger.LogInfo($"Handling the message type {Message.Types.Type.EpfdHeartbeatRequest}.");
             Message reply = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
                 AbstractionId = "pl",
-                SystemId = _appSystem.SystemId,
                 Type = Message.Types.Type.PlSend,
                 PlSend = new PlSend
                 {
@@ -68,7 +63,6 @@ namespace ConsensusProject.Abstractions
                     {
                         MessageUuid = Guid.NewGuid().ToString(),
                         AbstractionId = _id,
-                        SystemId = _appSystem.SystemId,
                         Type = Message.Types.Type.EpfdHeartbeatReply,
                         EpfdHeartbeatReply = new EpfdHeartbeatReply_(),
                     }
@@ -80,7 +74,7 @@ namespace ConsensusProject.Abstractions
 
         private bool HandleEpfdHearthBeatReply(Message message)
         {
-            _logger.LogInfo($"Handling the message type {Message.Types.Type.EpfdHeartbeatReply}.");
+            //_logger.LogInfo($"Handling the message type {Message.Types.Type.EpfdHeartbeatReply}.");
             _alive.Add(message.PlDeliver.Sender);
             return true;
         }
@@ -90,9 +84,9 @@ namespace ConsensusProject.Abstractions
             if(_alive.Intersect(_suspected).Count() == 0)
             {
                 _delay += _config.Delay;
-                _logger.LogInfo($"Increased delay to {_delay}.");
+                //_logger.LogInfo($"Increased delay to {_delay}.");
             }
-            foreach(var procces in _systemProcesses)
+            foreach(var procces in _appProcces.ShardNodes)
             {
                 if (!_alive.Contains(procces) && !_suspected.Contains(procces))
                 {
@@ -101,7 +95,6 @@ namespace ConsensusProject.Abstractions
                     {
                         MessageUuid = Guid.NewGuid().ToString(),
                         AbstractionId = _id,
-                        SystemId = _appSystem.SystemId,
                         Type = Message.Types.Type.EpfdSuspect,
                         EpfdSuspect = new EpfdSuspect
                         {
@@ -117,7 +110,6 @@ namespace ConsensusProject.Abstractions
                     {
                         MessageUuid = Guid.NewGuid().ToString(),
                         AbstractionId = _id,
-                        SystemId = _appSystem.SystemId,
                         Type = Message.Types.Type.EpfdRestore,
                         EpfdRestore = new EpfdRestore
                         {
@@ -130,7 +122,6 @@ namespace ConsensusProject.Abstractions
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
                     AbstractionId = "pl",
-                    SystemId = _appSystem.SystemId,
                     Type = Message.Types.Type.PlSend,
                     PlSend = new PlSend
                     {
@@ -139,7 +130,6 @@ namespace ConsensusProject.Abstractions
                         {
                             MessageUuid = Guid.NewGuid().ToString(),
                             AbstractionId = _id,
-                            SystemId = _appSystem.SystemId,
                             Type = Message.Types.Type.EpfdHeartbeatRequest,
                             EpfdHeartbeatRequest = new EpfdHeartbeatRequest_()
                         }
@@ -152,7 +142,7 @@ namespace ConsensusProject.Abstractions
         }
         private async Task StartTimer(int delay)
         {
-            _logger.LogInfo("Strarting timer.");
+            //_logger.LogInfo("Strarting timer.");
             await Task.Delay(delay);
             HandleTimeout();
         }
