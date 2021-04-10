@@ -2,6 +2,7 @@
 using ConsensusProject.Messages;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ConsensusProject.Abstractions
 {
@@ -9,19 +10,15 @@ namespace ConsensusProject.Abstractions
     {
         private string _id;
         private AppProccess _appProcces;
-        private AppSystem _appSystem;
         private Config _config;
         private AppLogger _logger;
-        private List<ProcessId> _systemProcesses;
 
-        public BestEffortBroadcast(string id, Config config, AppProccess appProcess, AppSystem appSystem, List<ProcessId> systemProcesses)
+        public BestEffortBroadcast(string id, Config config, AppProccess appProcess)
         {
             _id = id;
             _config = config;
-            _logger = new AppLogger(_config, _id, appSystem.SystemId);
+            _logger = new AppLogger(_config, _id);
             _appProcces = appProcess;
-            _appSystem = appSystem;
-            _systemProcesses = systemProcesses;
         }
 
         public bool Handle(Message message)
@@ -30,24 +27,39 @@ namespace ConsensusProject.Abstractions
             {
                 _logger.LogInfo($"Handling BebBroadcast of Message type {message.BebBroadcast.Message.Type}");
 
-                foreach (var proccess in _systemProcesses)
+                List<ProcessId> processesToBroadcast = new List<ProcessId>();
+                if (message.BebBroadcast.Type == BebBroadcast.Types.Type.IntraShard)
                 {
-                    var plSend = new Message
+                    processesToBroadcast = _appProcces.ShardNodes;
+                }
+                else if (message.BebBroadcast.Type == BebBroadcast.Types.Type.InterShard)
+                {
+                    processesToBroadcast = _appProcces.NetworkNodes.Where(it => it.Owner != _config.Alias).ToList();
+                } else if (message.BebBroadcast.Type == BebBroadcast.Types.Type.Network)
+                {
+                    processesToBroadcast = _appProcces.NetworkNodes;
+                }
+
+                foreach (var proccess in processesToBroadcast)
+                {
+                    if (!proccess.Equals(_appProcces.CurrentProccess))
                     {
-                        MessageUuid = Guid.NewGuid().ToString(),
-                        SystemId = _appSystem.SystemId,
-                        AbstractionId = _id,
-                        Type = Message.Types.Type.PlSend,
-
-                        PlSend = new PlSend
+                        var plSend = new Message
                         {
-                            Message = message.BebBroadcast.Message,
-                            Destination = proccess,
-                        }
-                    };
+                            MessageUuid = Guid.NewGuid().ToString(),
+                            SystemId = message.SystemId,
+                            AbstractionId = _id,
+                            Type = Message.Types.Type.PlSend,
 
-                    _logger.LogInfo($"Sending PlSend Message to {proccess.Owner}-{proccess.Index}/{_appSystem.SystemId}.");
-                    _appProcces.EnqueMessage(plSend);
+                            PlSend = new PlSend
+                            {
+                                Message = message.BebBroadcast.Message,
+                                Destination = proccess,
+                            }
+                        };
+                        _logger.LogInfo($"Sending PlSend Message to {proccess.Owner}-{proccess.Index}/{message.SystemId}.");
+                        _appProcces.EnqueMessage(plSend);
+                    }
                 }
                 return true;
             }
