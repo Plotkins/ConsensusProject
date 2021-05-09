@@ -4,6 +4,7 @@ using ConsensusProject.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace ConsensusProject
 {
@@ -61,6 +62,7 @@ namespace ConsensusProject
                     var newNode = new Node(_config.HubIpAddress, _config.HubPort, _config.HubIpAddress, process.Port, process.Owner, index);
                     _nodes.Add($"{process.Owner}-{index}", newNode);
                     index++;
+                    Thread.Sleep(2000);
                 }
             }
             catch
