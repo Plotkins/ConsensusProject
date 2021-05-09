@@ -257,17 +257,19 @@ namespace Hub
                 Port = message.NetworkMessage.SenderListeningPort,
                 Owner = message.NetworkMessage.Message.AppRegistrationRequest.Owner,
                 Index = message.NetworkMessage.Message.AppRegistrationRequest.Index,
-                Rank = _processes.Count
+                Rank = _processes.Count + 1
             };
 
             var node = _processes.FirstOrDefault(n => n.Owner == newProcess.Owner && n.Index == newProcess.Index);
             if (node == null)
             {
-                _processes.Add(newProcess);
                 _logger.LogInfo($"{newProcess.Owner}-{newProcess.Port}: listening to {newProcess.Host}:{newProcess.Port}");
 
                 var reply = new AppRegistrationReply();
                 reply.Processes.AddRange(_processes);
+                reply.NewProcess = newProcess;
+
+                _processes.Add(newProcess);
 
                 Message appRegisterReply = new Message
                 {
