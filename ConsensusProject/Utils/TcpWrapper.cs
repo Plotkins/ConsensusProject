@@ -3,6 +3,8 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ConsensusProject.Utils
 {
@@ -20,19 +22,41 @@ namespace ConsensusProject.Utils
 
         public void Start() => _server.Start();
 
-        public void Send(string ipAddress, int port, byte[] content)
+        public async Task Send(string ipAddress, int port, byte[] content)
         {
+            var timeOut = TimeSpan.FromSeconds(10);
+            var cancellationCompletionSource = new TaskCompletionSource<bool>();
             try
             {
-                using (TcpClient client = new TcpClient(ipAddress, port))
-                using (var ms = new MemoryStream())
-                using (NetworkStream stream = client.GetStream())
+                using (var cts = new CancellationTokenSource(timeOut))
                 {
-                    var bufferLength = BitConverter.GetBytes(content.Length);
-                    Array.Reverse(bufferLength);
-                    var finalArray = bufferLength.Concat(content).ToArray();
-                    stream.Write(finalArray, 0, finalArray.Length);
+                    using (var client = new TcpClient())
+                    {
+                        var task = client.ConnectAsync(ipAddress, port);
+
+                        using (cts.Token.Register(() => cancellationCompletionSource.TrySetResult(true)))
+                        {
+                            if (task != await Task.WhenAny(task, cancellationCompletionSource.Task))
+                            {
+                                throw new OperationCanceledException(cts.Token);
+                            }
+                        }
+
+                        using (var ms = new MemoryStream())
+                        using (NetworkStream stream = client.GetStream())
+                        {
+                            var bufferLength = BitConverter.GetBytes(content.Length);
+                            Array.Reverse(bufferLength);
+                            var finalArray = bufferLength.Concat(content).ToArray();
+                            stream.Write(finalArray, 0, finalArray.Length);
+                        }
+
+                    }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw new Exception("TCP connection timeout");
             }
             catch
             {
