@@ -5,7 +5,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reactive.Subjects;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace ConsensusProject.App
 {
@@ -20,7 +22,7 @@ namespace ConsensusProject.App
         private ConcurrentDictionary<string, ProcessId> _shardLeaders = new ConcurrentDictionary<string, ProcessId>();
 
         public ConcurrentDictionary<string, AppSystem> AppSystems { get; set; } = new ConcurrentDictionary<string, AppSystem>();
-        
+
         public AppProccess(Config config)
         {
             _messagesMap = new ConcurrentDictionary<string, Message>();
@@ -31,9 +33,11 @@ namespace ConsensusProject.App
             InitializeCommunicationAbstractions();
         }
 
-        public List<ProcessId> ShardNodes => _networkNodes[_config.Alias];
+        public List<ProcessId> ShardNodes => _networkNodes.GetValueOrDefault(_config.Alias);
         public List<ProcessId> NetworkLeaders => _shardLeaders.Values.ToList();
         public List<ProcessId> NetworkNodes => _networkNodes.Values.SelectMany(it => it).ToList();
+
+        public int NetworkVersion { get; internal set; } = 0;
 
         public void Run()
         {
@@ -63,7 +67,7 @@ namespace ConsensusProject.App
 
         public bool IsLeader { get { return CurrentShardLeader.Equals(CurrentProccess); } }
 
-        public ProcessId CurrentProccess => ShardNodes.Find(it => _config.IsEqual(it));
+        public ProcessId CurrentProccess => ShardNodes?.Find(it => _config.IsEqual(it));
 
         public ProcessId HubProcess => new ProcessId { Host = _config.HubIpAddress, Port = _config.HubPort };
 

@@ -12,7 +12,7 @@ namespace ConsensusProject.App
         public int NodePort { get; set; } = 5000;
         public string Alias { get; set; }
         public int ProccessIndex { get; set; }
-        public int Delay { get; set; } = 100;
+        public int Delay { get; set; } = 2000;
         public int EpochIncrement { get; set; } = 1;
         public bool IsEqual(ProcessId processId)
         {
