@@ -146,11 +146,18 @@ message Transaction {
 // APP
 message NewNodeRegistered {
     ProcessId process = 1;
+    int32 networkVersion = 2;
+    repeated ProcessId networkProcesses = 3;
 }
 
 message NewNodeAcknowledged {
-    repeated ProcessId processes = 1;
 }
+
+message NewNodeRejected {
+    repeated ProcessId processes = 1;
+    int32 networkVersion = 2;
+}
+
 
 message AppRegistrationRequest { // Send to hub upon process startup: Message(NetworkMessage(Message(AppRegistration)))
     string owner = 1;     // Some short alias
@@ -159,6 +166,8 @@ message AppRegistrationRequest { // Send to hub upon process startup: Message(Ne
 
 message AppRegistrationReply { // Send to hub upon process startup: Message(NetworkMessage(Message(AppRegistration)))
     repeated ProcessId processes = 1; // List of processes involved in the consensus algorithm (PI set)
+    int32 networkVersion = 2;
+    ProcessId newProcess = 3;
 }
 
 message AppPropose { // Received from the HUB as Message(NetworkMessage(Message(AppPropose))). Should be handled by the
@@ -240,10 +249,11 @@ message BebBroadcast {
         INTRA_SHARD = 0;
         INTER_SHARD = 1;
         NETWORK = 2;
+        CUSTOM = 3;
     }
-
     Message message = 1;
-    Type type = 2;
+    repeated ProcessId processes = 2;
+    Type type = 3;
 
 }
 
@@ -294,6 +304,27 @@ message PlDeliver {
     Message message = 2;
 }
 
+message UvsBroadcast {
+    enum Type {
+        INTRA_SHARD = 0;
+        INTER_SHARD = 1;
+        NETWORK = 2;
+        CUSTOM = 3;
+    }
+
+    Message message = 1;
+    Type type = 2;
+    repeated ProcessId processes = 3;
+}
+
+message UvsDeliver {
+    ProcessId sender = 1;
+    Message message = 2;
+}
+
+message CpJoin {
+}
+
 // Network-traveling message
 // When handling MessageA(PlSend(MessageB)) create MessageC(NetworkMessage(MessageB)), setting:
 //     MessageC.SystemId = MessageA.SystemId
@@ -316,6 +347,7 @@ message Message {
     enum Type {
         NETWORK_MESSAGE = 0;
 
+        NEW_NODE_REJECTED = 1;
         NEW_NODE_ACKNOWLEDGED = 2;
         NEW_NODE_REGISTERED = 3;
 
@@ -348,6 +380,8 @@ message Message {
         ELD_TRUST = 51;
         ELD_SHARD_TRUST = 52;
 
+        CP_JOIN = 53;
+
         EPFD_TIMEOUT = 60;
         EPFD_HEARTBEAT_REQUEST = 61;
         EPFD_HEARTBEAT_REPLY = 62;
@@ -359,6 +393,9 @@ message Message {
 
         DEPLOY_NODES = 72;
         STOP_NODES = 73;
+
+        UVS_BROADCAST = 74;
+        UVS_DELIVER = 75;
     }
 
     Type type = 1;
@@ -379,6 +416,7 @@ message Message {
     
     NewNodeRegistered NewNodeRegistered = 12;
     NewNodeAcknowledged NewNodeAcknowledged = 13;
+    NewNodeRejected NewNodeRejected = 14;
 
     EpAbort epAbort = 20;
     EpAborted epAborted = 21;
@@ -400,6 +438,7 @@ message Message {
     EldTimeout eldTimeout = 50;
     EldTrust eldTrust = 51;
     EldShardTrust eldShardTrust = 52;
+    CpJoin cpJoin = 53;
 
     EpfdTimeout epfdTimeout = 60;
     EpfdHeartbeatRequest_ epfdHeartbeatRequest_ = 61;
@@ -412,4 +451,7 @@ message Message {
 
     DeployNodes deployNodes = 72;
     StopNodes stopNodes = 73;
+
+    UvsBroadcast uvsBroadcast = 74;
+    UvsDeliver uvsDeliver = 75;
 }

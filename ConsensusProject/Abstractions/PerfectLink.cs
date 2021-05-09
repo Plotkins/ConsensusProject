@@ -68,7 +68,7 @@ namespace ConsensusProject.Abstractions
             {
                 var byteArray = message.ToByteArray();
                
-                _tcpWrapper.Send(host, port, byteArray);
+                _tcpWrapper.Send(host, port, byteArray).Wait();
 
                 if (message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatReply && message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatRequest)
                     _logger.LogInfo($"Sent to {host}:{port} a {message.NetworkMessage.Message.Type} message ");

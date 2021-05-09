@@ -4,6 +4,7 @@ using ConsensusProject.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace ConsensusProject.Abstractions
 {
@@ -40,9 +41,18 @@ namespace ConsensusProject.Abstractions
                     return HandleEpfdRestore(m);
                 case Message m when m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.EldShardTrust:
                     return HandleEldShardTrust(m);
+                case Message m when m.Type == Message.Types.Type.CpJoin:
+                    return HandleCpJoin(message);
                 default:
                     return false;
             }
+        }
+
+        private bool HandleCpJoin(Message message)
+        {
+            _logger.LogInfo($"Handling the message type {Message.Types.Type.CpJoin}.");
+            CheckIfLeaderRankChanged();
+            return true;
         }
 
         private bool HandleEldShardTrust(Message message)
@@ -65,18 +75,7 @@ namespace ConsensusProject.Abstractions
         {
             _logger.LogInfo($"Handling the message type {Message.Types.Type.EpfdRestore}.");
 
-            int i = 0;
-            while (i < _suspected.Count)
-            {
-                if (_suspected[i].Equals(message.EpfdRestore.Process))
-                {
-                    _suspected.RemoveAt(i);
-                }
-                else
-                {
-                    i += 1;
-                }
-            }
+            _suspected.Remove(message.EpfdRestore.Process);
 
             CheckIfLeaderRankChanged();
 
@@ -88,20 +87,12 @@ namespace ConsensusProject.Abstractions
             List<ProcessId> subProcs = new List<ProcessId>();
             foreach (var proc1 in _appProcces.ShardNodes)
             {
-                bool found = false;
-                foreach(var proc2 in _suspected)
-                {
-                    if (proc1.Equals(proc2))
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found)
+                if (!_suspected.Contains(proc1))
                 {
                     subProcs.Add(proc1);
                 }
             }
+
             var maxRankProcess = AbstractionHelpers.GetMaxRankedProcess(subProcs);
             if (maxRankProcess != null && !maxRankProcess.Equals(_appProcces.CurrentShardLeader))
             {

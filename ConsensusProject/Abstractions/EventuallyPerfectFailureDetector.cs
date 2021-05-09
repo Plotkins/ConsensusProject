@@ -75,7 +75,8 @@ namespace ConsensusProject.Abstractions
         private bool HandleEpfdHearthBeatReply(Message message)
         {
             //_logger.LogInfo($"Handling the message type {Message.Types.Type.EpfdHeartbeatReply}.");
-            _alive.Add(message.PlDeliver.Sender);
+            var node = _appProcces.ShardNodes.FirstOrDefault(it => it.Host == message.PlDeliver.Sender.Host && it.Port == message.PlDeliver.Sender.Port);
+            if(node != null) _alive.Add(node);
             return true;
         }
 
@@ -84,7 +85,6 @@ namespace ConsensusProject.Abstractions
             if(_alive.Intersect(_suspected).Count() == 0)
             {
                 _delay += _config.Delay;
-                //_logger.LogInfo($"Increased delay to {_delay}.");
             }
             foreach(var procces in _appProcces.ShardNodes)
             {
@@ -118,6 +118,7 @@ namespace ConsensusProject.Abstractions
                     };
                     _appProcces.EnqueMessage(restore);
                 }
+
                 Message request = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
