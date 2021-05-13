@@ -122,9 +122,14 @@ message ProcessId {
 }
 
 message Value {       // Needed to model the undefined value that appears in the textbook
-    bool defined = 1;
-	Transaction transaction = 3;
-    int64 unixEpoch = 5;
+    enum Type {
+        SBAC_PREPARED = 0;
+        SBAC_ACCEPT = 1;
+    }
+    
+    Type type = 1;
+    SbacPrepared sbacPrepared = 2;
+    SbacAccept sbacAccept = 3;
 }
 
 message Transaction {
@@ -132,8 +137,9 @@ message Transaction {
 	string from = 2;
 	string to = 3;
 	double amount = 4;
-    string shard = 5;
-    Status status = 6;
+    string shardIn = 5;
+    string shardOut = 6;
+    Status status = 7;
 
     enum Status {
         PENDING = 0;
@@ -182,11 +188,17 @@ message AppDecide {  // Upon receiving UcDecide, send to HUB as Message(NetworkM
 
 // UC
 // In the Init event or constructor, initialize l (leader) with the max-rank process in PI
-message UcPropose {
-    Value value = 1;
+enum ProposeType
+{
+    UNDEFINED = 0;
+    SBAC_PREPARE = 1;
+    SBAC_LOCAL_PREPARED = 2;
 }
 
-
+message UcPropose {
+    ProposeType type = 1;
+    Transaction transaction = 2;
+}
 
 message UcDecide {
     Value value = 1;
@@ -203,7 +215,6 @@ message EpAborted {
 }
 
 message EpPropose {
-    Value value = 1;
 }
 
 message EpDecide {
@@ -325,6 +336,43 @@ message UvsDeliver {
 message CpJoin {
 }
 
+enum TransactionAction {
+    COMMIT = 0;
+    ABORT = 1;
+}
+
+message SbacPrepare {
+    Transaction transaction = 1;
+}
+
+message SbacPrepared {
+    TransactionAction Action = 1;
+    Transaction transaction = 2;
+    string systemId = 3;
+}
+
+message SbacLocalPrepared {
+    TransactionAction Action = 1;
+    Transaction transaction = 2;
+    string shardId = 3;
+    string systemId = 4;
+}
+
+message SbacAccept {
+    TransactionAction Action = 1;
+    Transaction transaction = 2;
+}
+
+message SbacAllPrepared {
+    TransactionAction Action = 1;
+    Transaction transaction = 2;
+}
+
+message SbacSomePrepared {
+    Transaction transaction = 2;
+}
+
+
 // Network-traveling message
 // When handling MessageA(PlSend(MessageB)) create MessageC(NetworkMessage(MessageB)), setting:
 //     MessageC.SystemId = MessageA.SystemId
@@ -396,6 +444,12 @@ message Message {
 
         UVS_BROADCAST = 74;
         UVS_DELIVER = 75;
+
+        SBAC_PREPARE = 76;
+        SBAC_PREPARED = 77;
+        SBAC_LOCAL_PREPARED = 78;
+        SBAC_ACCEPT = 79;
+        SBAC_ALL_PREPARED = 80;
     }
 
     Type type = 1;
@@ -454,4 +508,10 @@ message Message {
 
     UvsBroadcast uvsBroadcast = 74;
     UvsDeliver uvsDeliver = 75;
+
+    SbacPrepare sbacPrepare = 76;
+    SbacPrepared sbacPrepared = 77;
+    SbacLocalPrepared sbacLocalPrepared = 78;
+    SbacAccept sbacAccept = 79;
+    SbacAllPrepared sbacAllPrepared = 80;
 }

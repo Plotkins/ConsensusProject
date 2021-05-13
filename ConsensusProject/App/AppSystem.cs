@@ -1,5 +1,6 @@
 ﻿using ConsensusProject.Abstractions;
 using ConsensusProject.Messages;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 
@@ -9,7 +10,7 @@ namespace ConsensusProject.App
     {
         private Config _config;
         private AppLogger _logger;
-        private Dictionary<string, Abstraction> _abstractions = new Dictionary<string, Abstraction>();
+        private ConcurrentDictionary<string, Abstraction> _abstractions = new ConcurrentDictionary<string, Abstraction>();
         private AppProccess _appProccess;
         public string SystemId { get; private set; }
 
@@ -71,8 +72,8 @@ namespace ConsensusProject.App
         #region Private methods
         private void _initializeAbstractions(AppSystem appSystem)
         {
-            _abstractions.Add( "ec", new EpochChange("ec", _config, _appProccess, appSystem));
-            _abstractions.Add( "uc", new UniformConsensus("uc", _config, _appProccess, appSystem));
+            _abstractions.TryAdd( "ec", new EpochChange("ec", _config, _appProccess, appSystem));
+            _abstractions.TryAdd( "uc", new UniformConsensus("uc", _config, _appProccess, appSystem));
         }
         #endregion Private methods
     }

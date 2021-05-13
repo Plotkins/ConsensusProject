@@ -17,10 +17,10 @@ namespace ConsensusProject.Abstractions
         //state
         private int _ets;
         private EpState_ _currentState;
-        private Value _tmpVal;
         private Dictionary<int, EpState_> _states = new Dictionary<int, EpState_>();
         private int _accepted;
         private bool _aborted;
+        private Value _tmpVal;
 
         public EpochConsensus(string id, Config config, AppProccess appProcess, AppSystem appSystem, int ets, EpState_ state)
         {
@@ -33,7 +33,6 @@ namespace ConsensusProject.Abstractions
             //state
             _ets = ets;
             _currentState = state;
-            _tmpVal = new Value { Defined = false };
             _accepted = 0;
             _aborted = false;
         }
@@ -71,8 +70,6 @@ namespace ConsensusProject.Abstractions
             if (_appProcces.IsLeader)
             {
                 _logger.LogInfo($"LEADER handling the message type {Message.Types.Type.EpPropose}.");
-                _tmpVal = message.EpPropose.Value;
-                _currentState.Value = _tmpVal.Clone();
 
                 Message read = new Message
                 {
@@ -153,12 +150,10 @@ namespace ConsensusProject.Abstractions
             if (_states.Values.Count > _appSystem.NrOfProcesses / 2)
             {
                 _logger.LogInfo($"Majority hit! Creating the message type {Message.Types.Type.EpWrite}.");
-                EpState_ maxState = GetHighestState(_states.Values.ToList());
+                var finalState = GetFinalState();
 
-                if(maxState.Value.Defined)
-                {
-                    _tmpVal = maxState.Value.Clone();
-                }
+                _tmpVal = finalState.Value;
+
                 _states = new Dictionary<int, EpState_>();
 
                 Message write = new Message
@@ -187,17 +182,49 @@ namespace ConsensusProject.Abstractions
             }
         }
 
-        private EpState_ GetHighestState(List<EpState_> states)
+        private EpState_ GetFinalState()
         {
-            EpState_ max = new EpState_ { Value = new Value { Defined = false } };
-            foreach(var state in states)
+            EpState_ final = new EpState_ { Value = new Value() };
+            var action = TransactionAction.Commit;
+            string transactionId;
+            foreach (var state in _states.Values)
             {
-                if(state.Value.Defined && state.Value.UnixEpoch > max.Value.UnixEpoch)
-                {
-                    max = state.Clone();
-                }
+                if (state.Value.Type != _currentState.Value.Type)
+                    action = TransactionAction.Abort;
+                if (state.Value.Type == Value.Types.Type.SbacPrepared && state.Value.SbacPrepared.Action == TransactionAction.Abort)
+                    action = TransactionAction.Abort;
+                if (state.Value.Type == Value.Types.Type.SbacAccept && state.Value.SbacAccept.Action == TransactionAction.Abort)
+                    action = TransactionAction.Abort;
             }
-            return max;
+            if (_currentState.Value.Type == Value.Types.Type.SbacPrepared)
+            {
+                transactionId = _currentState.Value.SbacPrepared.Transaction.Id;
+                var sbacPrepared = new SbacPrepared
+                {
+                    Transaction = _currentState.Value.SbacPrepared.Transaction,
+                    Action = action,
+                    SystemId = _currentState.Value.SbacPrepared.SystemId
+                };
+                
+                final.Value.SbacPrepared = sbacPrepared;
+                final.Value.Type = Value.Types.Type.SbacPrepared;
+            }
+            else
+            {
+                transactionId = _currentState.Value.SbacAccept.Transaction.Id;
+                var sbacAccept = new SbacAccept
+                {
+                    Transaction = _currentState.Value.SbacAccept.Transaction,
+                    Action = action,
+                };
+
+                final.Value.SbacAccept = sbacAccept;
+                final.Value.Type = Value.Types.Type.SbacAccept;
+            }
+
+            _logger.LogInfo($"{final.Value.Type} generated with action {action} for transaction ID {transactionId}.");
+
+            return final;
         }
 
         private bool HandleEpWrite(Message message)

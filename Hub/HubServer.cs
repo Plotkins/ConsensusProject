@@ -1,10 +1,8 @@
-﻿using ConsensusProject.Abstractions;
-using ConsensusProject.App;
+﻿using ConsensusProject.App;
 using ConsensusProject.Messages;
 using ConsensusProject.Utils;
 using Google.Protobuf.Collections;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -22,6 +20,10 @@ namespace Hub
     public class TransactionReported
     {
         public Transaction Transaction { get; set; }
+        public int Received { get; set; } = 0;
+        public int Total { get; set; } = 0;
+        public int Commited { get; set; } = 0;
+        public int Aborted { get; set; } = 0;
         public Stopwatch StopWatch { get; set; } = new Stopwatch();
     }
 
@@ -155,66 +157,74 @@ namespace Hub
 
         private void MakeTransaction(string argsString, bool isDeposit = false)
         {
-            var args = new Dictionary<string, string>();
-            argsString
-                .Trim().Split("-")
-                .Where(it => !string.IsNullOrWhiteSpace(it))
-                .ToList()
-                .ConvertAll(it => it.Trim().Split())
-                .ForEach(it => args[it[0]] = it[1]);
-
-            var dstAccount = args["to"];
-            var srcAccount = string.Empty;
-            if (!isDeposit) 
-                srcAccount = args["from"];
-            double amount = double.Parse(args["a"]);
-            var shard = args["s"];
-
-            var appPropose = new AppPropose
+            try
             {
-                Value = new Value
+                var args = new Dictionary<string, string>();
+                argsString
+                    .Trim().Split("-")
+                    .Where(it => !string.IsNullOrWhiteSpace(it))
+                    .ToList()
+                    .ConvertAll(it => it.Trim().Split())
+                    .ForEach(it => args[it[0]] = it[1]);
+
+                var dstAccount = args["to"];
+                var srcAccount = string.Empty;
+                if (!isDeposit)
+                    srcAccount = args["from"];
+                double amount = double.Parse(args["a"]);
+                var shardIn = args["sin"];
+                var shardOut = args.GetValueOrDefault("sout") ?? shardIn;
+            
+
+                var sbacPrepare = new SbacPrepare
                 {
-                    Defined = true,
-                    UnixEpoch = UnixEpoch,
                     Transaction = new Transaction
                     {
                         Id = NewId,
                         From = srcAccount,
                         To = dstAccount,
                         Amount = amount,
-                        Shard = shard
-                    }
-                },
-            };
+                        ShardIn = shardIn,
+                        ShardOut = shardOut
+                    },
+                };
 
-            var txReported = new TransactionReported { Transaction = appPropose.Value.Transaction };
-            transactions.Add(txReported.Transaction.Id, txReported);
+                
 
-            Message deposit = new Message
-            {
-                MessageUuid = NewId,
-                Type = Message.Types.Type.NetworkMessage,
-                SystemId = NewId,
-                NetworkMessage = new NetworkMessage
+                Message deposit = new Message
                 {
-                    SenderHost = _config.HubIpAddress,
-                    SenderListeningPort = _config.HubPort,
-                    Message = new Message
+                    MessageUuid = NewId,
+                    Type = Message.Types.Type.NetworkMessage,
+                    SystemId = NewId,
+                    NetworkMessage = new NetworkMessage
                     {
-                        MessageUuid = NewId,
-                        SystemId = NewId,
-                        Type = Message.Types.Type.AppPropose,
-                        AppPropose = appPropose
+                        SenderHost = _config.HubIpAddress,
+                        SenderListeningPort = _config.HubPort,
+                        Message = new Message
+                        {
+                            MessageUuid = NewId,
+                            SystemId = NewId,
+                            Type = Message.Types.Type.SbacPrepare,
+                            SbacPrepare = sbacPrepare
+                        }
                     }
-                }
-            };
+                };
+                
+                var shardProcesses = _processes.Where(it => it.Owner == shardIn || it.Owner == shardOut).ToList();
 
-            var shardProcesses = _processes.Where(it => it.Owner == shard).ToList();
-            txReported.StopWatch.Start();
-            foreach (var process in shardProcesses)
+                var txReported = new TransactionReported { Transaction = sbacPrepare.Transaction, Total = shardProcesses.Count };
+                transactions.Add(txReported.Transaction.Id, txReported);
+                txReported.StopWatch.Start();
+
+                foreach (var process in shardProcesses)
+                {
+                    _logger.LogInfo($"Process {process.Owner}-{process.Index} will propose transaction Id={sbacPrepare.Transaction.Id}");
+                    _broker.SendMessage(deposit, process.Host, process.Port);
+                }
+            }
+            catch (Exception ex)
             {
-                _logger.LogInfo($"Process {process.Owner}-{process.Index} will propose transaction Id={appPropose.Value.Transaction.Id}");
-                _broker.SendMessage(deposit, process.Host, process.Port);
+                _logger.LogError($"Error during executing the operation. Exception: {ex}");
             }
         }
 
@@ -232,10 +242,17 @@ namespace Hub
 
                 switch (msg.NetworkMessage.Message.Type)
                 {
-                    case Message.Types.Type.AppDecide:
+                    case Message.Types.Type.SbacAllPrepared:
+                        var transactionReceived = msg.NetworkMessage.Message.SbacAllPrepared.Transaction;
                         var process = _processes.Find(it => it.Host == msg.NetworkMessage.SenderHost && it.Port == msg.NetworkMessage.SenderListeningPort);
-                        _logger.LogInfo($"Transaction Id={msg.NetworkMessage.Message.AppDecide.Value.Transaction.Id} accepted by {process.Owner}-{process.Index}");
-                        transactions[msg.NetworkMessage.Message.AppDecide.Value.Transaction.Id].StopWatch.Stop();
+                        _logger.LogInfo($"Transaction Id={transactionReceived.Id} accepted by {process.Owner}-{process.Index}");
+                        transactions[transactionReceived.Id].StopWatch.Stop();
+                        transactions[transactionReceived.Id].Transaction.Status = transactionReceived.Status;
+                        transactions[transactionReceived.Id].Received++;
+                        if (transactionReceived.Status == Transaction.Types.Status.Accepted)
+                            transactions[transactionReceived.Id].Commited++;
+                        if (transactionReceived.Status == Transaction.Types.Status.Rejected)
+                            transactions[transactionReceived.Id].Aborted++;
                         break;
                     case Message.Types.Type.AppRegistrationRequest:
                         RegisterProcess(msg);
@@ -334,8 +351,15 @@ namespace Hub
         {
             var output = "\n-----------TRANSACTIONS----------\n";
             output += transactions.ToList().ToStringTable(
-                new string[] { "TRANSACTION ID", "SOURCE ACCOUNT", "DESTINATION ACCOUNT", "AMOUNT", "TIME ELAPSED" },
-                p => p.Value.Transaction.Id, p => p.Value.Transaction.From, p => p.Value.Transaction.To, p => p.Value.Transaction.Amount, p => p.Value.StopWatch.IsRunning ? "WAITING" : p.Value.StopWatch.Elapsed.ToString()
+                new string[] { "TRANSACTION ID", "SOURCE ACCOUNT", "DESTINATION ACCOUNT", "AMOUNT", "RECEIVED", "COMMITED", "ABORTED", "TIME ELAPSED" },
+                p => p.Value.Transaction.Id,
+                p => p.Value.Transaction.From,
+                p => p.Value.Transaction.To,
+                p => p.Value.Transaction.Amount,
+                p => $"{p.Value.Received}/{p.Value.Total}",
+                p => p.Value.Commited,
+                p => p.Value.Aborted,
+                p => p.Value.StopWatch.IsRunning ? "WAITING" : p.Value.StopWatch.Elapsed.ToString()
                 );
             Console.WriteLine(output);
         }
@@ -361,7 +385,11 @@ namespace Hub
         {
             string table = _processes.ToStringTable(
                 new string[] { "HOST", "PORT", "OWNER", "INDEX", "RANK"},
-                it => it.Host, it => it.Port, it => it.Owner, it => it.Index, it => it.Rank);
+                it => it.Host,
+                it => it.Port,
+                it => it.Owner,
+                it => it.Index,
+                it => it.Rank);
             Console.WriteLine(table);
         }
 
@@ -371,8 +399,8 @@ namespace Hub
     help
     nodes
     transactions
-    transfer -from <nickname> -to <nickname> -a <amount> -s <alias>
-    deposit -to <nickname> -a <amount> -s <alias>
+    transfer -from <nickname> -to <nickname> -a <amount> -sin <alias> -sout <alias> 
+    deposit -to <nickname> -a <amount> -sin <alias>
     deploy -s <alias> <port>-<port> ...
     stop -s <alias> <port>-<port> ...
             ";

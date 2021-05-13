@@ -57,10 +57,6 @@ namespace ConsensusProject.Abstractions
                     return HandleNewNodeAcknowledged(message);
                 case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.NewNodeRejected:
                     return HandleNewNodeRejected(message);
-                case Message m when m.Type == Message.Types.Type.PlDeliver && m.PlDeliver.Message.Type == Message.Types.Type.AppPropose:
-                    return HandleAppPropose(message);
-                case Message m when m.Type == Message.Types.Type.UcDecide:
-                    return HandleUcDecide(message);
                 default:
                     return false;
             }
@@ -253,71 +249,6 @@ namespace ConsensusProject.Abstractions
                 _appProccess.EnqueMessage(reply);
             }
            
-            return true;
-        }
-
-        private bool HandleAppPropose(Message message)
-        {
-            if (!_appProccess.AppSystems.TryAdd(message.SystemId, new AppSystem(message.SystemId, _config, _appProccess)))
-            {
-                _logger.LogInfo($"The process is already assigned to the system with Id={message.SystemId}!");
-            }
-            else
-            {
-                _logger.LogInfo($"New system with Id={message.SystemId} added to the process!");
-            }
-
-            _appProccess.PrintNetworkNodes();
-
-            Message ucPropose = new Message
-            {
-                MessageUuid = Guid.NewGuid().ToString(),
-                Type = Message.Types.Type.UcPropose,
-                SystemId = message.SystemId,
-                AbstractionId = "uc",
-
-                UcPropose = new UcPropose
-                {
-                    Value = message.PlDeliver.Message.AppPropose.Value.Clone()
-                }
-            };
-
-            _appProccess.EnqueMessage(ucPropose);
-            return true;
-        }
-
-        private bool HandleUcDecide(Message message)
-        {
-            Message appDecide =  new Message
-            {
-                MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = "pl",
-                Type = Message.Types.Type.PlSend,
-                PlSend = new PlSend
-                {
-                    Destination = _appProccess.HubProcess,
-                    Message = new Message
-                    {
-                        MessageUuid = Guid.NewGuid().ToString(),
-                        SystemId = message.SystemId,
-                        Type = Message.Types.Type.AppDecide,
-                        AppDecide = new AppDecide
-                        {
-                            Value = message.UcDecide.Value
-                        }
-                    }
-                }
-            };
-
-            _appProccess.AddTransaction(message.UcDecide.Value.Transaction);
-
-            _logger.LogInfo($"Consensus for transaction with Id={message.UcDecide.Value.Transaction.Id} ended.");
-
-            _appProccess.PrintAccounts();
-            _appProccess.PrintTransactions();
-
-            _appProccess.EnqueMessage(appDecide);
-
             return true;
         }
     }

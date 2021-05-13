@@ -13,7 +13,7 @@ namespace ConsensusProject.Abstractions
         private AppLogger _logger;
 
         //state
-        private Value _value;
+        private ProposeType _ucType;
         private bool _proposed;
         private bool _decided;
         private int _ets;
@@ -30,20 +30,11 @@ namespace ConsensusProject.Abstractions
             _appSystem = appSystem;
 
             //state
-            _value = new Value { Defined = false };
+            _ucType = ProposeType.SbacPrepare;
             _proposed = false;
             _decided = false;
             _ets = 0;
             _newTs = 0;
-
-            EpState_ state = new EpState_
-            {
-                ValueTimestamp = 0,
-                Value = new Value { Defined = false }
-            };
-
-            _appSystem.InitializeNewEpochConsensus(0, state);
-
         }
 
         public bool Handle(Message message)
@@ -67,15 +58,15 @@ namespace ConsensusProject.Abstractions
         {
             _logger.LogInfo($"Handling the message type {Message.Types.Type.UcPropose}.");
 
-            if (message.UcPropose.Value.Defined)
-            {
-                _value = message.UcPropose.Value;
+            _ucType = message.UcPropose.Type;
 
-                HandleProposeValueIfLeader();
+            var state = GenerateState(message.UcPropose);
 
-                return true;
-            }
-            return false;
+            _appSystem.InitializeNewEpochConsensus(0, state);
+
+            HandleProposeValueIfLeader();
+
+            return true;
         }
 
         private bool HandleEcStartEpoch(Message message)
@@ -139,7 +130,7 @@ namespace ConsensusProject.Abstractions
 
         private void HandleProposeValueIfLeader()
         {
-            if(_appProcces.CurrentShardLeader.Equals(_appSystem.CurrentProccess) && _value.Defined && _proposed == false)
+            if(_appProcces.CurrentShardLeader.Equals(_appSystem.CurrentProccess) && _proposed == false)
             {
                 _logger.LogInfo($"LEADER creating a {Message.Types.Type.EpPropose} message.");
                 _proposed = true;
@@ -149,13 +140,47 @@ namespace ConsensusProject.Abstractions
                     AbstractionId = $"ep{_ets}",
                     SystemId = _appSystem.SystemId,
                     Type = Message.Types.Type.EpPropose,
-                    EpPropose = new EpPropose
-                    {
-                        Value = _value
-                    }
+                    EpPropose = new EpPropose()
                 };
                 _appProcces.EnqueMessage(propose);
             }
+        }
+
+        private EpState_ GenerateState(UcPropose ucPropose)
+        {
+            var value = new Value();
+            TransactionAction action;
+            if (_ucType == ProposeType.SbacPrepare)
+            {
+                action = _appProcces.GetPreparedAction(ucPropose.Transaction);
+                value.Type = Value.Types.Type.SbacPrepared;
+                value.SbacPrepared = new SbacPrepared
+                {
+                    Action = action,
+                    Transaction = ucPropose.Transaction,
+                    SystemId = Guid.NewGuid().ToString(),
+                };
+            }
+            else
+            {
+                action = _appProcces.GetAcceptAction(ucPropose.Transaction);
+                value.Type = Value.Types.Type.SbacAccept;
+                value.SbacAccept = new SbacAccept
+                {
+                    Action = action,
+                    Transaction = ucPropose.Transaction
+                };
+            }
+
+            _logger.LogInfo($"{value.Type} generated with action {action} for transaction ID {ucPropose.Transaction.Id}.");
+
+            EpState_ state = new EpState_
+            {
+                ValueTimestamp = 0,
+                Value = value
+            };
+
+            return state;
         }
     }
 }

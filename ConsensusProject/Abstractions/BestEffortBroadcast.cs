@@ -38,6 +38,9 @@ namespace ConsensusProject.Abstractions
                 } else if (message.BebBroadcast.Type == BebBroadcast.Types.Type.Network)
                 {
                     processesToBroadcast = _appProcces.NetworkNodes;
+                } else if (message.BebBroadcast.Type == BebBroadcast.Types.Type.Custom)
+                {
+                    processesToBroadcast = message.BebBroadcast.Processes.ToList();
                 }
 
                 foreach (var proccess in processesToBroadcast)
@@ -59,6 +62,22 @@ namespace ConsensusProject.Abstractions
                         };
                         _logger.LogInfo($"Sending PlSend Message to {proccess.Owner}-{proccess.Index}/{message.SystemId}.");
                         _appProcces.EnqueMessage(plSend);
+                    }
+                    else
+                    {
+                        Message bebDeliver = new Message
+                        {
+                            MessageUuid = Guid.NewGuid().ToString(),
+                            AbstractionId = message.AbstractionId,
+                            SystemId = message.SystemId,
+                            Type = Message.Types.Type.BebDeliver,
+                            BebDeliver = new BebDeliver
+                            {
+                                Sender = _appProcces.CurrentProccess,
+                                Message = message.BebBroadcast.Message,
+                            }
+                        };
+                        _appProcces.EnqueMessage(bebDeliver);
                     }
                 }
                 return true;
