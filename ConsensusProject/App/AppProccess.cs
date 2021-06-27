@@ -24,7 +24,7 @@ namespace ConsensusProject.App
         public ConcurrentDictionary<string, bool> AccountLocks = new ConcurrentDictionary<string, bool>();
         public ConcurrentDictionary<string, AppSystem> AppSystems { get; set; } = new ConcurrentDictionary<string, AppSystem>();
         public ConcurrentDictionary<string, List<SbacLocalPrepared>> LocalPreparedPerTransaction = new ConcurrentDictionary<string, List<SbacLocalPrepared>>();
-
+  
         public AppProccess(Config config)
         {
             _messagesMap = new ConcurrentDictionary<string, Message>();
@@ -46,25 +46,31 @@ namespace ConsensusProject.App
         {
             while (true)
             {
-                try
+                if (Messages.Count == 0)
                 {
-                    foreach (var message in Messages)
+                    Thread.Sleep(500);
+                }
+                else
+                {
+                    try
                     {
-                        foreach (var abstraction in _abstractions.Values)
+                        Parallel.ForEach(Messages, (message) =>
                         {
-                            if (abstraction.Handle(message))
+                            foreach (var abstraction in _abstractions.Values)
                             {
-                                DequeMessage(message);
+                                if (abstraction.Handle(message))
+                                {
+                                    DequeMessage(message);
+                                    break;
+                                }
                             }
-                        }
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex.ToString());
                     }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex.ToString());
-                }
-
-                if (Messages.Count == 0) Thread.Sleep(1000);
             }
         }
 
@@ -174,12 +180,12 @@ namespace ConsensusProject.App
 
         public void DequeMessage(Message message)
         {
-            if (!_messagesMap.TryRemove(message.MessageUuid, out _)) throw new Exception("Error removing the message.");
+            if (!_messagesMap.TryRemove(message.MessageUuid, out _)) _logger.LogError("Error removing the message.");
         }
 
         public void EnqueMessage(Message message)
         {
-            if (!_messagesMap.TryAdd(message.MessageUuid, message)) throw new Exception("Error adding the message.");
+            if (!_messagesMap.TryAdd(message.MessageUuid, message)) _logger.LogError("Error adding the message.");
         }
 
         public ICollection<Message> Messages

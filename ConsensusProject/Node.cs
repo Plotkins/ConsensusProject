@@ -20,7 +20,7 @@ namespace ConsensusProject
                     NodePort = nodePort1,
                     Alias = alias,
                     ProccessIndex = index,
-                    Delay = 100,
+                    Delay = 1000,
                     EpochIncrement = 1
                 };
 

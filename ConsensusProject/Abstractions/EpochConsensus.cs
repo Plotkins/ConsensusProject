@@ -147,7 +147,7 @@ namespace ConsensusProject.Abstractions
         private void HandleMajorityHit()
         {
             _logger.LogInfo($"Checking if majority is hit ({_states.Values.Count} > {_appSystem.NrOfProcesses / 2}).");
-            if (_states.Values.Count > _appSystem.NrOfProcesses / 2)
+            if (_states.Values.Count == _appSystem.NrOfProcesses)
             {
                 _logger.LogInfo($"Majority hit! Creating the message type {Message.Types.Type.EpWrite}.");
                 var finalState = GetFinalState();
@@ -277,7 +277,7 @@ namespace ConsensusProject.Abstractions
 
         private void HandleMajorityAccepted()
         {
-            if (_accepted > _appSystem.NrOfProcesses / 2)
+            if (_accepted == _appSystem.NrOfProcesses)
             {
                 _logger.LogInfo($"Majority accepted! Creating the message type {Message.Types.Type.EpDecided}.");
                 Message decided = new Message

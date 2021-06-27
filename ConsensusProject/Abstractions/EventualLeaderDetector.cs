@@ -102,7 +102,8 @@ namespace ConsensusProject.Abstractions
 
                 BroadcastEldTrustToInternalSystems();
 
-                BroadcastEldShardTrustToExternalShardNodes();
+                if (_appProcces.IsLeader)
+                    BroadcastEldShardTrustToExternalShardNodes();
             }
         }
 

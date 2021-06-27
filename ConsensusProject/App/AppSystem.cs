@@ -2,7 +2,9 @@
 using ConsensusProject.Messages;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace ConsensusProject.App
 {
@@ -31,19 +33,17 @@ namespace ConsensusProject.App
         {
             while (!Decided)
             {
-                foreach(var message in _appProccess.Messages)
-                {
-                    if (message.SystemId == SystemId)
+                var messages = _appProccess.Messages.Where(message => message.SystemId == SystemId);
+                Parallel.ForEach(messages, (message) => {
+                    foreach (Abstraction abstraction in _abstractions.Values)
                     {
-                        foreach(Abstraction abstraction in _abstractions.Values)
+                        if (abstraction.Handle(message))
                         {
-                            if (abstraction.Handle(message))
-                            {
-                                _appProccess.DequeMessage(message);
-                            }
+                            _appProccess.DequeMessage(message);
+                            break;
                         }
                     }
-                }
+                });
             }
         }
 
@@ -58,7 +58,7 @@ namespace ConsensusProject.App
         public void InitializeNewEpochConsensus(int ets, EpState_ state)
         {
             if (!_abstractions.TryAdd($"ep{ets}", new EpochConsensus($"ep{ets}", _config, _appProccess, this, ets, state)))
-                throw new System.Exception($"Error adding a new epoch consensus with timestamp {ets}.");
+                _logger.LogError($"Error adding a new epoch consensus with timestamp {ets}.");
         }
 
         public int NrOfProcesses
