@@ -173,40 +173,39 @@ namespace ConsensusProject.Abstractions
 
         public void CheckIfAllShardsPrepared(string transactionId)
         {
-            var localPrepared = _appProccess.LocalPreparedPerTransaction[transactionId].FirstOrDefault(it => it.ShardId == _config.Alias);
-            if (localPrepared != null
-                && (localPrepared.Action == TransactionAction.Abort
-                    || _appProccess.LocalPreparedPerTransaction[transactionId].Count == 2
-                    || localPrepared.Transaction.ShardIn == localPrepared.Transaction.ShardOut))
+            try
             {
-                _appProccess.LocalPreparedPerTransaction[transactionId].Remove(localPrepared);
-
-                _logger.LogInfo($"Begining the consensus for {Message.Types.Type.SbacAccept}.");
-                if (!_appProccess.AppSystems.TryAdd(localPrepared.SystemId, new AppSystem(localPrepared.SystemId, _config, _appProccess)))
-                {
-                    _logger.LogInfo($"The process is already assigned to the system with Id={localPrepared.SystemId}!");
-                }
-                else
+                var localPrepared = _appProccess.LocalPreparedPerTransaction[transactionId].FirstOrDefault(it => it.ShardId == _config.Alias);
+                if (localPrepared != null && (_appProccess.LocalPreparedPerTransaction[transactionId].Any(it => it.Action == TransactionAction.Abort)
+                    || _appProccess.LocalPreparedPerTransaction[transactionId].Count == 2
+                    || localPrepared.Transaction.ShardIn == localPrepared.Transaction.ShardOut
+                    ) && _appProccess.AppSystems.TryAdd(localPrepared.SystemId, new AppSystem(localPrepared.SystemId, _config, _appProccess)))
                 {
                     _logger.LogInfo($"New system with Id={localPrepared.SystemId} added to the process!");
-                }
 
-                Message ucPropose = new Message
-                {
-                    MessageUuid = Guid.NewGuid().ToString(),
-                    Type = Message.Types.Type.UcPropose,
-                    SystemId = localPrepared.SystemId,
-                    AbstractionId = "uc",
-
-                    UcPropose = new UcPropose
+                    _logger.LogInfo($"Begining the consensus for {Message.Types.Type.SbacAccept}.");
+                    Message ucPropose = new Message
                     {
-                        Type = ProposeType.SbacLocalPrepared,
-                        Transaction = localPrepared.Transaction
-                    }
-                };
+                        MessageUuid = Guid.NewGuid().ToString(),
+                        Type = Message.Types.Type.UcPropose,
+                        SystemId = localPrepared.SystemId,
+                        AbstractionId = "uc",
 
-                _appProccess.EnqueMessage(ucPropose);
+                        UcPropose = new UcPropose
+                        {
+                            Type = ProposeType.SbacLocalPrepared,
+                            Transaction = localPrepared.Transaction
+                        }
+                    };
+
+                    _appProccess.EnqueMessage(ucPropose);
+                }
             }
+            catch (Exception)
+            {
+                throw;
+            }
+            
         }
     }
 }
