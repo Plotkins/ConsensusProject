@@ -168,12 +168,30 @@ namespace Hub
                     .ForEach(it => args[it[0]] = it[1]);
 
                 var dstAccount = args["to"];
-                var srcAccount = string.Empty;
+                string srcAccount = string.Empty, shardIn = string.Empty, shardOut = string.Empty;
                 if (!isDeposit)
+                {
                     srcAccount = args["from"];
+                    shardIn = transactions.Values
+                        .FirstOrDefault(it =>
+                            it.Transaction.To == srcAccount && 
+                            string.IsNullOrWhiteSpace(it.Transaction.From) &&
+                            it.Aborted == 0)
+                        .Transaction.ShardIn;
+                    shardOut = transactions.Values
+                        .FirstOrDefault(it =>
+                            it.Transaction.To == dstAccount &&
+                            string.IsNullOrWhiteSpace(it.Transaction.From) &&
+                            it.Aborted == 0)
+                        .Transaction.ShardIn;
+                }
+                else
+                {
+                    shardIn = args["s"];
+                    shardOut = args["s"];
+                }
+                    
                 double amount = double.Parse(args["a"]);
-                var shardIn = args["sin"];
-                var shardOut = args.GetValueOrDefault("sout") ?? shardIn;
             
 
                 var sbacPrepare = new SbacPrepare
@@ -188,8 +206,6 @@ namespace Hub
                         ShardOut = shardOut
                     },
                 };
-
-                
 
                 Message deposit = new Message
                 {
@@ -399,8 +415,8 @@ namespace Hub
     help
     nodes
     transactions
-    transfer -from <nickname> -to <nickname> -a <amount> -sin <alias> -sout <alias> 
-    deposit -to <nickname> -a <amount> -sin <alias>
+    transfer -from <nickname> -to <nickname> -a <amount>
+    deposit -to <nickname> -a <amount> -s <alias>
     deploy -s <alias> <port>-<port> ...
     stop -s <alias> <port>-<port> ...
             ";
