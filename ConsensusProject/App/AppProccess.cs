@@ -16,6 +16,7 @@ namespace ConsensusProject.App
         private Config _config;
         private AppLogger _logger;
         private List<Transaction> _transactions = new List<Transaction>();
+        private readonly object balanceLock = new object();
         private ConcurrentDictionary<string, Message> _messagesMap = new ConcurrentDictionary<string, Message>();
         private ConcurrentDictionary<string, List<ProcessId>> _networkNodes = new ConcurrentDictionary<string, List<ProcessId>>();
         private ConcurrentDictionary<string, Abstraction> _abstractions = new ConcurrentDictionary<string, Abstraction>();
@@ -93,12 +94,15 @@ namespace ConsensusProject.App
 
         public bool AddTransaction(Transaction transaction)
         {
-            if (_transactions.Any(t => t.Id == transaction.Id)) return false;
-
-            _transactions.Add(transaction);
-            if (transaction.From == null)
+            lock (balanceLock)
             {
-                AccountLocks[transaction.To] = false;
+                if (_transactions.Any(t => t.Id == transaction.Id)) return false;
+
+                _transactions.Add(transaction);
+                if (transaction.From == null)
+                {
+                    AccountLocks[transaction.To] = false;
+                }
             }
             return true;
         }
@@ -119,18 +123,21 @@ namespace ConsensusProject.App
             get
             {
                 var accounts = new Dictionary<string, double>();
-                foreach (var tx in _transactions.Where(it => it.Status == Transaction.Types.Status.Accepted))
+                lock (balanceLock)
                 {
-                    if (!accounts.ContainsKey(tx.To) && string.IsNullOrWhiteSpace(tx.From))
+                    foreach (var tx in _transactions.Where(it => it.Status == Transaction.Types.Status.Accepted))
                     {
-                        accounts[tx.To] = tx.Amount;
-                    }
-                    else
-                    {
-                        if (accounts.ContainsKey(tx.From))
-                            accounts[tx.From] -= tx.Amount;
-                        if (accounts.ContainsKey(tx.To))
-                            accounts[tx.To] += tx.Amount;
+                        if (!accounts.ContainsKey(tx.To) && string.IsNullOrWhiteSpace(tx.From))
+                        {
+                            accounts[tx.To] = tx.Amount;
+                        }
+                        else
+                        {
+                            if (accounts.ContainsKey(tx.From))
+                                accounts[tx.From] -= tx.Amount;
+                            if (accounts.ContainsKey(tx.To))
+                                accounts[tx.To] += tx.Amount;
+                        }
                     }
                 }
                 return accounts;
@@ -201,22 +208,24 @@ namespace ConsensusProject.App
 
             var isFromFree = false;
             var isToFree = false;
+            lock (balanceLock)
+            {
+                if (string.IsNullOrWhiteSpace(transaction.From))
+                {
+                    AccountLocks[transaction.To] = true;
+                    return TransactionAction.Commit;
+                }
 
-            if (string.IsNullOrWhiteSpace(transaction.From))
-            {
-                AccountLocks[transaction.To] = true;
-                return TransactionAction.Commit;
-            }
-
-            if (AccountLocks.ContainsKey(transaction.From) && !AccountLocks[transaction.From])
-            {
-                isFromFree = true;
-                AccountLocks[transaction.From] = true;
-            }
-            if (AccountLocks.ContainsKey(transaction.To) && !AccountLocks[transaction.To])
-            {
-                isToFree = true;
-                AccountLocks[transaction.To] = true;
+                if (AccountLocks.ContainsKey(transaction.From) && !AccountLocks[transaction.From])
+                {
+                    isFromFree = true;
+                    AccountLocks[transaction.From] = true;
+                }
+                if (AccountLocks.ContainsKey(transaction.To) && !AccountLocks[transaction.To])
+                {
+                    isToFree = true;
+                    AccountLocks[transaction.To] = true;
+                }
             }
 
             var existsTo = accounts.TryGetValue(transaction.To, out double toBalance);
