@@ -25,6 +25,15 @@ namespace Hub
         public int Commited { get; set; } = 0;
         public int Aborted { get; set; } = 0;
         public Stopwatch StopWatch { get; set; } = new Stopwatch();
+        public DateTime DateTime { get; set; }
+    }
+
+    public class TransactionDto
+    {
+        public string To { get; set; }
+        public string From { get; set; }
+        public string ShardIn { get; set; }
+        public string ShardOut { get; set; }
     }
 
     public class HubServer
@@ -164,78 +173,110 @@ namespace Hub
                     .Trim().Split("-")
                     .Where(it => !string.IsNullOrWhiteSpace(it))
                     .ToList()
-                    .ConvertAll(it => it.Trim().Split())
+                    .ConvertAll(it => it.Trim().Split(" ", 2))
                     .ForEach(it => args[it[0]] = it[1]);
 
                 var dstAccount = args["to"];
                 string srcAccount = string.Empty, shardIn = string.Empty, shardOut = string.Empty;
+
+                List<TransactionDto> transactionDtos = new List<TransactionDto>();
+
                 if (!isDeposit)
                 {
+                    var dstAccounts = dstAccount.Split(" ");
                     srcAccount = args["from"];
-                    shardIn = transactions.Values
-                        .FirstOrDefault(it =>
-                            it.Transaction.To == srcAccount && 
-                            string.IsNullOrWhiteSpace(it.Transaction.From) &&
-                            it.Aborted == 0)
-                        .Transaction.ShardIn;
-                    shardOut = transactions.Values
-                        .FirstOrDefault(it =>
-                            it.Transaction.To == dstAccount &&
-                            string.IsNullOrWhiteSpace(it.Transaction.From) &&
-                            it.Aborted == 0)
-                        .Transaction.ShardIn;
+                    var srcAccounts = srcAccount.Split(" ");
+
+                    if (dstAccounts.Length == srcAccounts.Length)
+                    {
+                        for(int i = 0; i < dstAccounts.Length; i++)
+                        {
+                            var transferTx = new TransactionDto
+                            {
+                                From = srcAccounts[i],
+                                To = dstAccounts[i],
+                                ShardIn = transactions.Values
+                                    .FirstOrDefault(it =>
+                                        it.Transaction.To == srcAccounts[i] &&
+                                        string.IsNullOrWhiteSpace(it.Transaction.From) &&
+                                        it.Aborted == 0)
+                                    .Transaction.ShardIn,
+                                ShardOut = transactions.Values
+                                    .FirstOrDefault(it =>
+                                        it.Transaction.To == dstAccounts[i] &&
+                                        string.IsNullOrWhiteSpace(it.Transaction.From) &&
+                                        it.Aborted == 0)
+                                    .Transaction.ShardIn,
+                            };
+                            transactionDtos.Add(transferTx);
+                        }
+                    }
+                    
                 }
                 else
                 {
-                    shardIn = args["s"];
-                    shardOut = args["s"];
+                    var dstAccounts = dstAccount.Split(" ");
+
+                    for (int i = 0; i < dstAccounts.Length; i++)
+                    {
+                        var depositTx = new TransactionDto
+                        {
+                            To = dstAccounts[i],
+                            From = string.Empty,
+                            ShardIn = args["s"],
+                            ShardOut = args["s"],
+                        };
+                        transactionDtos.Add(depositTx);
+                    }
                 }
                     
                 double amount = double.Parse(args["a"]);
             
-
-                var sbacPrepare = new SbacPrepare
+                foreach (var tx in transactionDtos)
                 {
-                    Transaction = new Transaction
+                    var sbacPrepare = new SbacPrepare
                     {
-                        Id = NewId,
-                        From = srcAccount,
-                        To = dstAccount,
-                        Amount = amount,
-                        ShardIn = shardIn,
-                        ShardOut = shardOut
-                    },
-                };
-
-                Message deposit = new Message
-                {
-                    MessageUuid = NewId,
-                    Type = Message.Types.Type.NetworkMessage,
-                    SystemId = NewId,
-                    NetworkMessage = new NetworkMessage
-                    {
-                        SenderHost = _config.HubIpAddress,
-                        SenderListeningPort = _config.HubPort,
-                        Message = new Message
+                        Transaction = new Transaction
                         {
-                            MessageUuid = NewId,
-                            SystemId = NewId,
-                            Type = Message.Types.Type.SbacPrepare,
-                            SbacPrepare = sbacPrepare
+                            Id = NewId,
+                            From = tx.From,
+                            To = tx.To,
+                            Amount = amount,
+                            ShardIn = tx.ShardIn,
+                            ShardOut = tx.ShardOut
+                        },
+                    };
+
+                    Message deposit = new Message
+                    {
+                        MessageUuid = NewId,
+                        Type = Message.Types.Type.NetworkMessage,
+                        SystemId = NewId,
+                        NetworkMessage = new NetworkMessage
+                        {
+                            SenderHost = _config.HubIpAddress,
+                            SenderListeningPort = _config.HubPort,
+                            Message = new Message
+                            {
+                                MessageUuid = NewId,
+                                SystemId = NewId,
+                                Type = Message.Types.Type.SbacPrepare,
+                                SbacPrepare = sbacPrepare
+                            }
                         }
+                    };
+
+                    var shardProcesses = _processes.Where(it => it.Owner == tx.ShardIn || it.Owner == tx.ShardOut).ToList();
+
+                    var txReported = new TransactionReported { Transaction = sbacPrepare.Transaction, Total = shardProcesses.Count, DateTime = DateTime.Now };
+                    transactions.Add(txReported.Transaction.Id, txReported);
+                    txReported.StopWatch.Start();
+
+                    foreach (var process in shardProcesses)
+                    {
+                        _logger.LogInfo($"Process {process.Owner}-{process.Index} will propose transaction Id={sbacPrepare.Transaction.Id}");
+                        _broker.SendMessage(deposit, process.Host, process.Port);
                     }
-                };
-                
-                var shardProcesses = _processes.Where(it => it.Owner == shardIn || it.Owner == shardOut).ToList();
-
-                var txReported = new TransactionReported { Transaction = sbacPrepare.Transaction, Total = shardProcesses.Count };
-                transactions.Add(txReported.Transaction.Id, txReported);
-                txReported.StopWatch.Start();
-
-                foreach (var process in shardProcesses)
-                {
-                    _logger.LogInfo($"Process {process.Owner}-{process.Index} will propose transaction Id={sbacPrepare.Transaction.Id}");
-                    _broker.SendMessage(deposit, process.Host, process.Port);
                 }
             }
             catch (Exception ex)
@@ -367,7 +408,7 @@ namespace Hub
         {
             var output = "\n-----------TRANSACTIONS----------\n";
             output += transactions.ToList().ToStringTable(
-                new string[] { "TRANSACTION ID", "SOURCE ACCOUNT", "DESTINATION ACCOUNT", "AMOUNT", "RECEIVED", "COMMITED", "ABORTED", "TIME ELAPSED" },
+                new string[] { "TRANSACTION ID", "SOURCE ACCOUNT", "DESTINATION ACCOUNT", "AMOUNT", "RECEIVED", "COMMITED", "ABORTED", "TIME ELAPSED", "DATETIME" },
                 p => p.Value.Transaction.Id,
                 p => p.Value.Transaction.From,
                 p => p.Value.Transaction.To,
@@ -375,7 +416,8 @@ namespace Hub
                 p => $"{p.Value.Received}/{p.Value.Total}",
                 p => p.Value.Commited,
                 p => p.Value.Aborted,
-                p => p.Value.StopWatch.IsRunning ? "WAITING" : p.Value.StopWatch.Elapsed.ToString()
+                p => p.Value.StopWatch.IsRunning ? "WAITING" : p.Value.StopWatch.Elapsed.ToString(),
+                p => p.Value.DateTime.ToString("O")
                 );
             Console.WriteLine(output);
         }
@@ -415,10 +457,9 @@ namespace Hub
     help
     nodes
     transactions
-    transfer -from <nickname> -to <nickname> -a <amount>
-    deposit -to <nickname> -a <amount> -s <alias>
+    transfer -from <nickname> ... -to <nickname> ... -a <amount>
+    deposit -to <nickname> ... -a <amount> -s <alias>
     deploy -s <alias> <port>-<port> ...
-    stop -s <alias> <port>-<port> ...
             ";
 
             Console.WriteLine(menu);
