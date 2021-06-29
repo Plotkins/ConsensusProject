@@ -210,7 +210,7 @@ namespace ConsensusProject.Abstractions
             }
             catch (Exception)
             {
-                throw;
+                _logger.LogError($"Error during CheckIfAllShardsPrepared");
             }
         }
     }

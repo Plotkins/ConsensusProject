@@ -253,7 +253,8 @@ namespace ConsensusProject.App
 
         public TransactionAction GetAcceptAction(Transaction transaction)
         {
-            if (LocalPreparedPerTransaction[transaction.Id].Any(it => it.Action == TransactionAction.Abort)) return TransactionAction.Abort;
+            if (LocalPreparedPerTransaction[transaction.Id].Any(it => it.Action == TransactionAction.Abort))
+                return TransactionAction.Abort;
 
             return TransactionAction.Commit;
         }

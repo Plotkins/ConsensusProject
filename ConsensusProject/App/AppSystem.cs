@@ -33,17 +33,24 @@ namespace ConsensusProject.App
         {
             while (!Decided)
             {
-                var messages = _appProccess.Messages.Where(message => message.SystemId == SystemId);
-                Parallel.ForEach(messages, (message) => {
-                    foreach (Abstraction abstraction in _abstractions.Values)
-                    {
-                        if (abstraction.Handle(message))
+                try
+                {
+                    var messages = _appProccess.Messages.Where(message => message.SystemId == SystemId);
+                    Parallel.ForEach(messages, (message) => {
+                        foreach (Abstraction abstraction in _abstractions.Values)
                         {
-                            _appProccess.DequeMessage(message);
-                            break;
+                            if (abstraction.Handle(message))
+                            {
+                                _appProccess.DequeMessage(message);
+                                break;
+                            }
                         }
-                    }
-                });
+                    });
+                }
+                catch (System.Exception)
+                {
+                    _logger.LogError("AppSystem EventLoop error");
+                }
             }
         }
 
