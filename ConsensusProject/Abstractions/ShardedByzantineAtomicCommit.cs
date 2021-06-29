@@ -44,7 +44,6 @@ namespace ConsensusProject.Abstractions
                 Action = message.UcDecide.Value.SbacPrepared.Action,
                 Transaction = message.UcDecide.Value.SbacPrepared.Transaction,
                 ShardId = _config.Alias,
-                SystemId = message.UcDecide.Value.SbacPrepared.SystemId,
             };
             if (_appProccess.IsLeader && message.UcDecide.Value.SbacPrepared.Transaction.ShardIn != message.UcDecide.Value.SbacPrepared.Transaction.ShardOut)
             {
@@ -185,8 +184,9 @@ namespace ConsensusProject.Abstractions
                     || localPrepared.Transaction.ShardIn == localPrepared.Transaction.ShardOut))
                 {
                     var systemId = $"{localPrepared.Transaction.Id}-accept";
-                    if (_appProccess.AppSystems.TryAdd(systemId, new AppSystem(systemId, _config, _appProccess)))
+                    if (!_appProccess.AppSystems.ContainsKey(systemId))
                     {
+                        _appProccess.AppSystems.TryAdd(systemId, new AppSystem(systemId, _config, _appProccess));
                         _logger.LogInfo($"New system with Id={systemId} added to the process!");
 
                         _logger.LogInfo($"Begining the consensus for {Message.Types.Type.SbacAccept}.");
