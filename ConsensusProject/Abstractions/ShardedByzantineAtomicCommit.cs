@@ -27,9 +27,9 @@ namespace ConsensusProject.Abstractions
                     return HandleSbacPrepare(message);
                 case Message m when m.Type == Message.Types.Type.BebDeliver && m.BebDeliver.Message.Type == Message.Types.Type.SbacLocalPrepared:
                     return HandleSbacLocalPrepared(message);
-                case Message m when m.Type == Message.Types.Type.UcDecide && m.UcDecide.Value.Type == Value.Types.Type.SbacPrepared:
+                case Message m when m.Type == Message.Types.Type.UcDecide && m.UcDecide?.Value?.Type == Value.Types.Type.SbacPrepared:
                     return HandleUcDecideSbacPrepared(message);
-                case Message m when m.Type == Message.Types.Type.UcDecide && m.UcDecide.Value.Type == Value.Types.Type.SbacAccept:
+                case Message m when m.Type == Message.Types.Type.UcDecide && m.UcDecide?.Value?.Type == Value.Types.Type.SbacAccept:
                     return HandleUcDecideSbacAccepted(message);
                 default:
                     return false;
@@ -93,35 +93,37 @@ namespace ConsensusProject.Abstractions
             transaction.Status = message.UcDecide.Value.SbacAccept.Action == TransactionAction.Commit
                 ? Transaction.Types.Status.Accepted
                 : Transaction.Types.Status.Rejected;
-            _appProccess.AddTransaction(transaction);
 
-            _logger.LogInfo($"Consensus for transaction with Id={message.UcDecide.Value.SbacAccept.Transaction.Id} ended.");
-
-            _appProccess.PrintAccounts();
-            _appProccess.PrintTransactions();
-            Message sbacAllPrepared = new Message
+            if (_appProccess.AddTransaction(transaction))
             {
-                MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = "pl",
-                Type = Message.Types.Type.PlSend,
-                PlSend = new PlSend
+                _logger.LogInfo($"Consensus for transaction with Id={message.UcDecide.Value.SbacAccept.Transaction.Id} ended.");
+
+                _appProccess.PrintAccounts();
+                _appProccess.PrintTransactions();
+                Message sbacAllPrepared = new Message
                 {
-                    Destination = _appProccess.HubProcess,
-                    Message = new Message
+                    MessageUuid = Guid.NewGuid().ToString(),
+                    AbstractionId = "pl",
+                    Type = Message.Types.Type.PlSend,
+                    PlSend = new PlSend
                     {
-                        MessageUuid = Guid.NewGuid().ToString(),
-                        SystemId = message.SystemId,
-                        Type = Message.Types.Type.SbacAllPrepared,
-                        SbacAllPrepared = new SbacAllPrepared
+                        Destination = _appProccess.HubProcess,
+                        Message = new Message
                         {
-                            Action = message.UcDecide.Value.SbacAccept.Action,
-                            Transaction = transaction
+                            MessageUuid = Guid.NewGuid().ToString(),
+                            SystemId = message.SystemId,
+                            Type = Message.Types.Type.SbacAllPrepared,
+                            SbacAllPrepared = new SbacAllPrepared
+                            {
+                                Action = message.UcDecide.Value.SbacAccept.Action,
+                                Transaction = transaction
+                            }
                         }
                     }
-                }
-            };
+                };
 
-            _appProccess.EnqueMessage(sbacAllPrepared);
+                _appProccess.EnqueMessage(sbacAllPrepared);
+            }
 
             return true;
         }

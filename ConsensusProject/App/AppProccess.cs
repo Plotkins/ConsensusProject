@@ -91,13 +91,16 @@ namespace ConsensusProject.App
             _shardLeaders[process.Owner] = process;
         }
 
-        public void AddTransaction(Transaction transaction)
+        public bool AddTransaction(Transaction transaction)
         {
+            if (_transactions.Any(t => t.Id == transaction.Id)) return false;
+
             _transactions.Add(transaction);
             if (transaction.From == null)
             {
                 AccountLocks[transaction.To] = false;
             }
+            return true;
         }
 
         public void AddNewNode(ProcessId process)
