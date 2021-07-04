@@ -87,6 +87,9 @@ namespace Hub
                     case "stop":
                         Stop(cmdList[1]);
                         break;
+                    case "reset":
+                        Reset();
+                        break;
                     default:
                         Console.WriteLine("Incorrect command");
                         break;
@@ -285,6 +288,14 @@ namespace Hub
             }
         }
 
+        public void Reset()
+        {
+            transactions = new Dictionary<string, TransactionReported>();
+            _processes = new List<ProcessId>();
+            _logger.LogInfo($"Hub state reset completed successfully!");
+
+        }
+
         private void HandleMessages()
         {
             while (true)
@@ -460,6 +471,7 @@ namespace Hub
     transfer -from <nickname> ... -to <nickname> ... -a <amount>
     deposit -to <nickname> ... -a <amount> -s <alias>
     deploy -s <alias> <port>-<port> ...
+    reset
             ";
 
             Console.WriteLine(menu);
