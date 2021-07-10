@@ -1,5 +1,6 @@
 ﻿using ConsensusProject.App;
 using ConsensusProject.Messages;
+using ConsensusProject.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,7 +11,7 @@ namespace ConsensusProject.Abstractions
     public class EventuallyPerfectFailureDetector : Abstraction
     {
         private string _id;
-        private AppProccess _appProcces;
+        private AppProcess _appProcess;
         private Config _config;
         private AppLogger _logger;
 
@@ -18,17 +19,20 @@ namespace ConsensusProject.Abstractions
         private List<ProcessId> _alive;
         private List<ProcessId> _suspected;
         private int _delay;
+        private MessageBroker _messageBroker;
 
 
-        public EventuallyPerfectFailureDetector(string id, Config config, AppProccess appProcess)
+        public EventuallyPerfectFailureDetector(string id, Config config, AppProcess appProcess, MessageBroker messageBroker)
         {
             _id = id;
             _config = config;
-            _logger = new AppLogger(_config, _id);
-            _appProcces = appProcess;
+            _logger = new AppLogger(_config, _id, appProcess.Id);
+            _appProcess = appProcess;
+            _messageBroker = messageBroker;
+            _messageBroker.Subscribe(appProcess.Id, _id, Handle);
 
             //state
-            _alive = new List<ProcessId>(_appProcces.ShardNodes);
+            _alive = new List<ProcessId>(_appProcess.ShardNodes);
             _suspected = new List<ProcessId>();
             _delay = _config.Delay;
 
@@ -50,11 +54,11 @@ namespace ConsensusProject.Abstractions
 
         private bool HandleEpfdHearthBeatRequest(Message message)
         {
-            //_logger.LogInfo($"Handling the message type {Message.Types.Type.EpfdHeartbeatRequest}.");
             Message reply = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = "pl",
+                AbstractionId = AbstractionType.Pl.ToString(),
+                SystemId = _appProcess.Id,
                 Type = Message.Types.Type.PlSend,
                 PlSend = new PlSend
                 {
@@ -63,19 +67,19 @@ namespace ConsensusProject.Abstractions
                     {
                         MessageUuid = Guid.NewGuid().ToString(),
                         AbstractionId = _id,
+                        SystemId = _appProcess.Id,
                         Type = Message.Types.Type.EpfdHeartbeatReply,
                         EpfdHeartbeatReply = new EpfdHeartbeatReply_(),
                     }
                 }
             };
-            _appProcces.EnqueMessage(reply);
+            _messageBroker.SendMessage(reply);
             return true;
         }
 
         private bool HandleEpfdHearthBeatReply(Message message)
         {
-            //_logger.LogInfo($"Handling the message type {Message.Types.Type.EpfdHeartbeatReply}.");
-            var node = _appProcces.ShardNodes.FirstOrDefault(it => it.Host == message.PlDeliver.Sender.Host && it.Port == message.PlDeliver.Sender.Port);
+            var node = _appProcess.ShardNodes.FirstOrDefault(it => it.Host == message.PlDeliver.Sender.Host && it.Port == message.PlDeliver.Sender.Port);
             if(node != null) _alive.Add(node);
             return true;
         }
@@ -86,7 +90,7 @@ namespace ConsensusProject.Abstractions
             {
                 _delay += _config.Delay;
             }
-            foreach(var procces in _appProcces.ShardNodes)
+            foreach(var procces in _appProcess.ShardNodes)
             {
                 if (!_alive.Contains(procces) && !_suspected.Contains(procces))
                 {
@@ -94,14 +98,15 @@ namespace ConsensusProject.Abstractions
                     Message suspect = new Message
                     {
                         MessageUuid = Guid.NewGuid().ToString(),
-                        AbstractionId = _id,
+                        AbstractionId = AbstractionType.Eld.ToString(),
+                        SystemId = _appProcess.Id,
                         Type = Message.Types.Type.EpfdSuspect,
                         EpfdSuspect = new EpfdSuspect
                         {
                             Process = procces
                         }
                     };
-                    _appProcces.EnqueMessage(suspect);
+                    _messageBroker.SendMessage(suspect);
                 }
                 else if (_alive.Contains(procces) && _suspected.Contains(procces))
                 {
@@ -109,20 +114,22 @@ namespace ConsensusProject.Abstractions
                     Message restore = new Message
                     {
                         MessageUuid = Guid.NewGuid().ToString(),
-                        AbstractionId = _id,
+                        AbstractionId = AbstractionType.Eld.ToString(),
+                        SystemId = _appProcess.Id,
                         Type = Message.Types.Type.EpfdRestore,
                         EpfdRestore = new EpfdRestore
                         {
                             Process = procces
                         }
                     };
-                    _appProcces.EnqueMessage(restore);
+                    _messageBroker.SendMessage(restore);
                 }
 
                 Message request = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = "pl",
+                    AbstractionId = AbstractionType.Pl.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.PlSend,
                     PlSend = new PlSend
                     {
@@ -131,19 +138,19 @@ namespace ConsensusProject.Abstractions
                         {
                             MessageUuid = Guid.NewGuid().ToString(),
                             AbstractionId = _id,
+                            SystemId = _appProcess.Id,
                             Type = Message.Types.Type.EpfdHeartbeatRequest,
                             EpfdHeartbeatRequest = new EpfdHeartbeatRequest_()
                         }
                     }
                 };
-                _appProcces.EnqueMessage(request);
+                _messageBroker.SendMessage(request);
             }
             _alive = new List<ProcessId>();
             StartTimer(_delay);
         }
         private async Task StartTimer(int delay)
         {
-            //_logger.LogInfo("Strarting timer.");
             await Task.Delay(delay);
             HandleTimeout();
         }

@@ -1,5 +1,6 @@
 ﻿using ConsensusProject.App;
 using ConsensusProject.Messages;
+using ConsensusProject.Utils;
 using System;
 using System.Linq;
 
@@ -7,15 +8,20 @@ namespace ConsensusProject.Abstractions
 {
     public class ShardedByzantineAtomicCommit : Abstraction
     {
-        private AppProccess _appProccess;
+        public string Id { get; private set; }
+        private AppProcess _appProcess;
         private AppLogger _logger;
         private Config _config;
+        private MessageBroker _messageBroker;
 
-        public ShardedByzantineAtomicCommit(AppProccess appProccess, AppLogger appLogger, Config config)
+        public ShardedByzantineAtomicCommit(string id, AppProcess appProcess, Config config, MessageBroker messageBroker)
         {
-            _appProccess = appProccess;
-            _logger = appLogger;
+            Id = id;
+            _appProcess = appProcess;
             _config = config;
+            _logger = new AppLogger(_config, Id, appProcess.Id);
+            _messageBroker = messageBroker;
+            _messageBroker.Subscribe(appProcess.Id, Id, Handle);
         }
 
         public bool Handle(Message message)
@@ -45,22 +51,24 @@ namespace ConsensusProject.Abstractions
                 Transaction = message.UcDecide.Value.SbacPrepared.Transaction,
                 ShardId = _config.Alias,
             };
-            if (_appProccess.IsLeader && message.UcDecide.Value.SbacPrepared.Transaction.ShardIn != message.UcDecide.Value.SbacPrepared.Transaction.ShardOut)
+            if (_appProcess.IsLeader && message.UcDecide.Value.SbacPrepared.Transaction.ShardIn != message.UcDecide.Value.SbacPrepared.Transaction.ShardOut)
             {
                 
                 var broadcast = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
+                    AbstractionId = AbstractionType.Beb.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.BebBroadcast,
-                    AbstractionId = "beb",
                     BebBroadcast = new BebBroadcast
                     {
                         Type = BebBroadcast.Types.Type.Custom,
                         Message = new Message
                         {
                             MessageUuid = Guid.NewGuid().ToString(),
+                            AbstractionId = AbstractionType.Sbac.ToString(),
+                            SystemId = _appProcess.Id,
                             Type = Message.Types.Type.SbacLocalPrepared,
-                            AbstractionId = "sbac",
                             SbacLocalPrepared = localPrepared
                         }
                     }
@@ -69,12 +77,12 @@ namespace ConsensusProject.Abstractions
                     ? message.UcDecide.Value.SbacPrepared.Transaction.ShardOut
                     : message.UcDecide.Value.SbacPrepared.Transaction.ShardIn;
 
-                broadcast.BebBroadcast.Processes.AddRange(_appProccess.GetShardNodes(shardId));
+                broadcast.BebBroadcast.Processes.AddRange(_appProcess.GetShardNodes(shardId));
 
-                _appProccess.EnqueMessage(broadcast);
+                _messageBroker.SendMessage(broadcast);
             }
 
-            _appProccess.AddLocalPrepared(localPrepared);
+            _appProcess.AddLocalPrepared(localPrepared);
 
             CheckIfAllShardsPrepared(localPrepared.Transaction.Id);
 
@@ -86,31 +94,33 @@ namespace ConsensusProject.Abstractions
             _logger.LogInfo($"Handling the message type {Message.Types.Type.SbacAccept}.");
             var transaction = message.UcDecide.Value.SbacAccept.Transaction;
 
-            if (_appProccess.AccountLocks.ContainsKey(transaction.From)) _appProccess.AccountLocks[transaction.From] = false;
-            if (_appProccess.AccountLocks.ContainsKey(transaction.To)) _appProccess.AccountLocks[transaction.To] = false;
+            if (_appProcess.AccountLocks.ContainsKey(transaction.From)) _appProcess.AccountLocks[transaction.From] = false;
+            if (_appProcess.AccountLocks.ContainsKey(transaction.To)) _appProcess.AccountLocks[transaction.To] = false;
 
             transaction.Status = message.UcDecide.Value.SbacAccept.Action == TransactionAction.Commit
                 ? Transaction.Types.Status.Accepted
                 : Transaction.Types.Status.Rejected;
 
-            if (_appProccess.AddTransaction(transaction))
+            if (_appProcess.AddTransaction(transaction))
             {
                 _logger.LogInfo($"Consensus for transaction with Id={message.UcDecide.Value.SbacAccept.Transaction.Id} ended.");
 
-                _appProccess.PrintAccounts();
-                _appProccess.PrintTransactions();
+                _appProcess.PrintAccounts();
+                _appProcess.PrintTransactions();
                 Message sbacAllPrepared = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = "pl",
+                    AbstractionId = AbstractionType.Pl.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.PlSend,
                     PlSend = new PlSend
                     {
-                        Destination = _appProccess.HubProcess,
+                        Destination = _appProcess.HubProcess,
                         Message = new Message
                         {
                             MessageUuid = Guid.NewGuid().ToString(),
-                            SystemId = message.SystemId,
+                            AbstractionId = AbstractionType.Hub.ToString(),
+                            SystemId = _appProcess.Id,
                             Type = Message.Types.Type.SbacAllPrepared,
                             SbacAllPrepared = new SbacAllPrepared
                             {
@@ -121,7 +131,7 @@ namespace ConsensusProject.Abstractions
                     }
                 };
 
-                _appProccess.EnqueMessage(sbacAllPrepared);
+                _messageBroker.SendMessage(sbacAllPrepared);
             }
 
             return true;
@@ -131,7 +141,7 @@ namespace ConsensusProject.Abstractions
         {
             _logger.LogInfo($"Handling the message type {Message.Types.Type.SbacPrepare}.");
             var systemId = $"{message.PlDeliver.Message.SbacPrepare.Transaction.Id}-prepare";
-            if (!_appProccess.AppSystems.TryAdd(systemId, new AppSystem(systemId, _config, _appProccess)))
+            if (!_appProcess.AppSystems.TryAdd(systemId, new AppSystem(systemId, _config, _appProcess, _messageBroker)))
             {
                 _logger.LogInfo($"The process is already assigned to the system with Id={systemId}!");
             }
@@ -142,15 +152,14 @@ namespace ConsensusProject.Abstractions
 
             _logger.LogInfo($"Begining the consensus for {Message.Types.Type.SbacPrepared}.");
 
-            _appProccess.PrintNetworkNodes();
+            _appProcess.PrintNetworkNodes();
 
             Message ucPropose = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                Type = Message.Types.Type.UcPropose,
+                AbstractionId = AbstractionType.Uc.ToString(),
                 SystemId = systemId,
-                AbstractionId = "uc",
-
+                Type = Message.Types.Type.UcPropose,
                 UcPropose = new UcPropose
                 {
                     Type = ProposeType.SbacPrepare,
@@ -158,7 +167,7 @@ namespace ConsensusProject.Abstractions
                 }
             };
 
-            _appProccess.EnqueMessage(ucPropose);
+            _messageBroker.SendMessage(ucPropose);
 
             return true;
         }
@@ -166,7 +175,7 @@ namespace ConsensusProject.Abstractions
         public bool HandleSbacLocalPrepared(Message message) {
 
             _logger.LogInfo($"Handling the message type {Message.Types.Type.SbacLocalPrepared}.");
-            _appProccess.AddLocalPrepared(message.BebDeliver.Message.SbacLocalPrepared);
+            _appProcess.AddLocalPrepared(message.BebDeliver.Message.SbacLocalPrepared);
 
             CheckIfAllShardsPrepared(message.BebDeliver.Message.SbacLocalPrepared.Transaction.Id);
 
@@ -177,26 +186,25 @@ namespace ConsensusProject.Abstractions
         {
             try
             {
-                var localPrepared = _appProccess.LocalPreparedPerTransaction[transactionId].FirstOrDefault();
+                var localPrepared = _appProcess.LocalPreparedPerTransaction[transactionId].FirstOrDefault();
 
-                if (localPrepared != null && (_appProccess.LocalPreparedPerTransaction[transactionId].Any(it => it.Action == TransactionAction.Abort)
-                    || _appProccess.LocalPreparedPerTransaction[transactionId].Count == 2
+                if (localPrepared != null && (_appProcess.LocalPreparedPerTransaction[transactionId].Any(it => it.Action == TransactionAction.Abort)
+                    || _appProcess.LocalPreparedPerTransaction[transactionId].Count == 2
                     || localPrepared.Transaction.ShardIn == localPrepared.Transaction.ShardOut))
                 {
                     var systemId = $"{localPrepared.Transaction.Id}-accept";
-                    if (!_appProccess.AppSystems.ContainsKey(systemId))
+                    if (!_appProcess.AppSystems.ContainsKey(systemId))
                     {
-                        _appProccess.AppSystems.TryAdd(systemId, new AppSystem(systemId, _config, _appProccess));
+                        _appProcess.AppSystems.TryAdd(systemId, new AppSystem(systemId, _config, _appProcess, _messageBroker));
                         _logger.LogInfo($"New system with Id={systemId} added to the process!");
 
                         _logger.LogInfo($"Begining the consensus for {Message.Types.Type.SbacAccept}.");
                         Message ucPropose = new Message
                         {
                             MessageUuid = Guid.NewGuid().ToString(),
-                            Type = Message.Types.Type.UcPropose,
+                            AbstractionId = AbstractionType.Uc.ToString(),
                             SystemId = systemId,
-                            AbstractionId = "uc",
-
+                            Type = Message.Types.Type.UcPropose,
                             UcPropose = new UcPropose
                             {
                                 Type = ProposeType.SbacLocalPrepared,
@@ -204,7 +212,7 @@ namespace ConsensusProject.Abstractions
                             }
                         };
 
-                        _appProccess.EnqueMessage(ucPropose);
+                        _messageBroker.SendMessage(ucPropose);
                     }
                 }
             }

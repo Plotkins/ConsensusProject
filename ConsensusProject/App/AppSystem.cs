@@ -1,10 +1,7 @@
 ﻿using ConsensusProject.Abstractions;
 using ConsensusProject.Messages;
+using ConsensusProject.Utils;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace ConsensusProject.App
 {
@@ -13,58 +10,34 @@ namespace ConsensusProject.App
         private Config _config;
         private AppLogger _logger;
         private ConcurrentDictionary<string, Abstraction> _abstractions = new ConcurrentDictionary<string, Abstraction>();
-        private AppProccess _appProccess;
+        private AppProcess _appProcess;
+        private MessageBroker _messageBroker;
+
         public string SystemId { get; private set; }
 
-        public AppSystem(string systemId, Config config, AppProccess appProccess)
+        public AppSystem(string systemId, Config config, AppProcess appProcess, MessageBroker messageBroker)
         {
             SystemId = systemId;
             _config = config;
             _logger = new AppLogger(_config, "AppSystem", SystemId);
-            _appProccess = appProccess;
+            _appProcess = appProcess;
+            _messageBroker = messageBroker;
             _initializeAbstractions(this);
-
-            new Thread(() => EventLoop()).Start();
         }
 
-        public bool Decided => ((UniformConsensus)_abstractions["uc"]).Decided;
+        public bool Decided => ((UniformConsensus)_abstractions[AbstractionType.Uc.ToString()]).Decided;
 
-        public void EventLoop()
-        {
-            while (!Decided)
-            {
-                try
-                {
-                    var messages = _appProccess.Messages.Where(message => message.SystemId == SystemId);
-                    Parallel.ForEach(messages, (message) => {
-                        foreach (Abstraction abstraction in _abstractions.Values)
-                        {
-                            if (abstraction.Handle(message))
-                            {
-                                _appProccess.DequeMessage(message);
-                                break;
-                            }
-                        }
-                    });
-                }
-                catch (System.Exception)
-                {
-                    _logger.LogError("AppSystem EventLoop error");
-                }
-            }
-        }
-
-        public ProcessId CurrentProccess
+        public ProcessId CurrentProcess
         {
             get
             {
-                return _appProccess.ShardNodes.Find(it => _config.IsEqual(it));
+                return _appProcess.ShardNodes.Find(it => _config.IsEqual(it));
             }
         }
 
         public void InitializeNewEpochConsensus(int ets, EpState_ state)
         {
-            if (!_abstractions.TryAdd($"ep{ets}", new EpochConsensus($"ep{ets}", _config, _appProccess, this, ets, state)))
+            if (!_abstractions.TryAdd($"{AbstractionType.Ep}{ets}", new EpochConsensus($"{AbstractionType.Ep}{ets}", _config, _appProcess, this, ets, state, _messageBroker)))
                 _logger.LogError($"Error adding a new epoch consensus with timestamp {ets}.");
         }
 
@@ -72,15 +45,15 @@ namespace ConsensusProject.App
         {
             get
             {
-                return _appProccess.ShardNodes.Count;
+                return _appProcess.ShardNodes.Count;
             }
         }
 
         #region Private methods
         private void _initializeAbstractions(AppSystem appSystem)
         {
-            _abstractions.TryAdd( "ec", new EpochChange("ec", _config, _appProccess, appSystem));
-            _abstractions.TryAdd( "uc", new UniformConsensus("uc", _config, _appProccess, appSystem));
+            _abstractions.TryAdd(AbstractionType.Ec.ToString(), new EpochChange(AbstractionType.Ec.ToString(), _config, _appProcess, appSystem, _messageBroker));
+            _abstractions.TryAdd(AbstractionType.Uc.ToString(), new UniformConsensus(AbstractionType.Uc.ToString(), _config, _appProcess, appSystem, _messageBroker));
         }
         #endregion Private methods
     }

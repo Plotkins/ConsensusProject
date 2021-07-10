@@ -1,5 +1,6 @@
 ﻿using ConsensusProject.App;
 using ConsensusProject.Messages;
+using ConsensusProject.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,31 +9,38 @@ namespace ConsensusProject.Abstractions
 {
     public class ClientProxy : Abstraction
     {
-        private AppProccess _appProccess;
+        private string _id;
+        private AppProcess _appProcess;
         private Config _config;
         private AppLogger _logger;
         private int aknowledgedCount = 0;
         private ProcessId pendingProcess;
+        private MessageBroker _messageBroker;
 
-        public ClientProxy(Config config, AppProccess appProccess)
+        public ClientProxy(string id, Config config, AppProcess appProcess, MessageBroker messageBroker)
         {
+            _id = id;
             _config = config;
-            _logger = new AppLogger(config, "cp");
-            _appProccess = appProccess;
+            _logger = new AppLogger(config, _id, appProcess.Id);
+            _appProcess = appProcess;
+            _messageBroker = messageBroker;
+            _messageBroker.Subscribe(appProcess.Id, _id, Handle);
 
             Message appRegister = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = "pl",
+                AbstractionId = AbstractionType.Pl.ToString(),
+                SystemId = _appProcess.Id,
                 Type = Message.Types.Type.PlSend,
                 PlSend = new PlSend
                 {
-                    Destination = _appProccess.HubProcess,
+                    Destination = _appProcess.HubProcess,
                     Message = new Message
                     {
                         MessageUuid = Guid.NewGuid().ToString(),
+                        AbstractionId = AbstractionType.Hub.ToString(),
+                        SystemId = _appProcess.Id,
                         Type = Message.Types.Type.AppRegistrationRequest,
-
                         AppRegistrationRequest = new AppRegistrationRequest
                         {
                             Index = _config.ProccessIndex,
@@ -42,7 +50,7 @@ namespace ConsensusProject.Abstractions
                 }
             };
 
-            _appProccess.EnqueMessage(appRegister);
+            _messageBroker.SendMessage(appRegister);
         }
 
         public bool Handle(Message message)
@@ -65,25 +73,26 @@ namespace ConsensusProject.Abstractions
         {
             _logger.LogInfo($"Handling the message type {Message.Types.Type.NewNodeRejected}.");
 
-            var processesToBroadcast = message.PlDeliver.Message.NewNodeRejected.Processes.Where(node => !_appProccess.NetworkNodes.Contains(node));
-            foreach (var node in message.PlDeliver.Message.NewNodeRejected.Processes.Where(node => !_appProccess.NetworkNodes.Contains(node)))
+            var processesToBroadcast = message.PlDeliver.Message.NewNodeRejected.Processes.Where(node => !_appProcess.NetworkNodes.Contains(node));
+            foreach (var node in message.PlDeliver.Message.NewNodeRejected.Processes.Where(node => !_appProcess.NetworkNodes.Contains(node)))
             {
-                _appProccess.AddNewNode(node.Clone());
+                _appProcess.AddNewNode(node.Clone());
             }
 
-            _appProccess.NetworkVersion = message.PlDeliver.Message.NewNodeRejected.NetworkVersion;
+            _appProcess.NetworkVersion = message.PlDeliver.Message.NewNodeRejected.NetworkVersion;
 
             Message newNodeRegistered = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = "cp",
+                AbstractionId = _id,
+                SystemId = _appProcess.Id,
                 Type = Message.Types.Type.NewNodeRegistered,
                 NewNodeRegistered = new NewNodeRegistered
                 {
-                    Process = _appProccess.CurrentProccess,
+                    Process = _appProcess.CurrentProccess,
                 }
             };
-            newNodeRegistered.NewNodeRegistered.NetworkProcesses.AddRange(_appProccess.NetworkNodes);
+            newNodeRegistered.NewNodeRegistered.NetworkProcesses.AddRange(_appProcess.NetworkNodes);
 
             var broadcast = new BebBroadcast
             {
@@ -95,20 +104,21 @@ namespace ConsensusProject.Abstractions
             Message reply = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = "beb",
+                AbstractionId = AbstractionType.Beb.ToString(),
+                SystemId = _appProcess.Id,
                 Type = Message.Types.Type.BebBroadcast,
                 BebBroadcast = broadcast
             };
 
             aknowledgedCount = 0;
-            _appProccess.EnqueMessage(reply);
+            _messageBroker.SendMessage(reply);
 
             return true;
         }
 
         public bool HandleNewNodeAcknowledged(Message message)
         {
-            _logger.LogInfo($"Handling the message type {Message.Types.Type.NewNodeAcknowledged}. Aknowledged {aknowledgedCount + 1}/{_appProccess.NetworkNodes.Count}");
+            _logger.LogInfo($"Handling the message type {Message.Types.Type.NewNodeAcknowledged}. Aknowledged {aknowledgedCount + 1}/{_appProcess.NetworkNodes.Count}");
 
             aknowledgedCount++;
 
@@ -119,12 +129,12 @@ namespace ConsensusProject.Abstractions
 
         private void CheckIfAllAknowledgedRegistration()
         {
-            if (aknowledgedCount == _appProccess.NetworkNodes.Count && pendingProcess != null)
+            if (aknowledgedCount == _appProcess.NetworkNodes.Count && pendingProcess != null)
             {
-                _appProccess.AddNewNode(pendingProcess.Clone());
+                _appProcess.AddNewNode(pendingProcess.Clone());
                 pendingProcess = null;
                 aknowledgedCount = 0;
-                _appProccess.InitializeLeaderMaintenanceAbstractions();
+                _appProcess.InitializeLeaderMaintenanceAbstractions();
             }
         }
 
@@ -137,31 +147,35 @@ namespace ConsensusProject.Abstractions
             var newNode = message.BebDeliver.Message.NewNodeRegistered.Process;
             var networkProcesses = message.BebDeliver.Message.NewNodeRegistered.NetworkProcesses;
 
-            var intersection = networkProcesses.Intersect(_appProccess.NetworkNodes).ToList();
+            var intersection = networkProcesses.Intersect(_appProcess.NetworkNodes).ToList();
             List<ProcessId> newNodes = new List<ProcessId>();
 
-            foreach (var node in networkProcesses.Where(node => !_appProccess.NetworkNodes.Contains(node)))
+            foreach (var node in networkProcesses.Where(node => !_appProcess.NetworkNodes.Contains(node)))
             {
                 newNodes.Add(node);
             }
 
-            if (intersection.Union(_appProccess.NetworkNodes).Count() > intersection.Count)
+            if (intersection.Union(_appProcess.NetworkNodes).Count() > intersection.Count)
             {
                 response = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
+                    AbstractionId = _id,
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.NewNodeRejected,
                     NewNodeRejected = new NewNodeRejected()
                 };
-                response.NewNodeRejected.Processes.AddRange(_appProccess.NetworkNodes.Union(newNodes));
+                response.NewNodeRejected.Processes.AddRange(_appProcess.NetworkNodes.Union(newNodes));
             }
-            else if (intersection.Union(networkProcesses).Count() >= intersection.Count && !_appProccess.NetworkNodes.Contains(newNode))
+            else if (intersection.Union(networkProcesses).Count() >= intersection.Count && !_appProcess.NetworkNodes.Contains(newNode))
             {
                 newNodes.Add(newNode);
 
                 response = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
+                    AbstractionId = _id,
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.NewNodeAcknowledged,
                     NewNodeAcknowledged = new NewNodeAcknowledged(),
                 };
@@ -172,7 +186,8 @@ namespace ConsensusProject.Abstractions
                 var bebDeliver = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = "pl",
+                    AbstractionId = AbstractionType.Pl.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.PlSend,
                     PlSend = new PlSend
                     {
@@ -181,25 +196,27 @@ namespace ConsensusProject.Abstractions
                     }
                 };
 
-                _appProccess.EnqueMessage(bebDeliver);
+                _messageBroker.SendMessage(bebDeliver);
             }
 
             if (newNodes.Count > 0)
             {
                 foreach (var node in newNodes)
                 {
-                    _appProccess.AddNewNode(node.Clone());
-                    _logger.LogInfo($"{node.Owner}/{node.Index} is the new node added. {_appProccess.NetworkNodes.Count} total nodes available.");
+                    _appProcess.AddNewNode(node.Clone());
+                    _logger.LogInfo($"{node.Owner}/{node.Index} is the new node added. {_appProcess.NetworkNodes.Count} total nodes available.");
                 }
 
                 Message cpJoin = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
+                    AbstractionId = AbstractionType.Eld.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.CpJoin,
                     CpJoin = new CpJoin()
                 };
 
-                _appProccess.EnqueMessage(cpJoin);
+                _messageBroker.SendMessage(cpJoin);
             }
 
             return true;
@@ -219,25 +236,27 @@ namespace ConsensusProject.Abstractions
             {
                 foreach (var process in message.PlDeliver.Message.AppRegistrationReply.Processes)
                 {
-                    _appProccess.AddNewNode(process);
+                    _appProcess.AddNewNode(process);
                 }
 
                 Message newNodeRegistered = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = "cp",
+                    AbstractionId = AbstractionType.Cp.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.NewNodeRegistered,
                     NewNodeRegistered = new NewNodeRegistered
                     {
                         Process = message.PlDeliver.Message.AppRegistrationReply.NewProcess,
                     }
                 };
-                newNodeRegistered.NewNodeRegistered.NetworkProcesses.AddRange(_appProccess.NetworkNodes);
+                newNodeRegistered.NewNodeRegistered.NetworkProcesses.AddRange(_appProcess.NetworkNodes);
 
                 Message reply = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = "beb",
+                    AbstractionId = AbstractionType.Beb.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.BebBroadcast,
                     BebBroadcast = new BebBroadcast
                     {
@@ -246,7 +265,7 @@ namespace ConsensusProject.Abstractions
                     }
                 };
 
-                _appProccess.EnqueMessage(reply);
+                _messageBroker.SendMessage(reply);
             }
            
             return true;

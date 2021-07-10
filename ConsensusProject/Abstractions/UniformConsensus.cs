@@ -1,5 +1,6 @@
 ﻿using ConsensusProject.App;
 using ConsensusProject.Messages;
+using ConsensusProject.Utils;
 using System;
 
 namespace ConsensusProject.Abstractions
@@ -7,10 +8,11 @@ namespace ConsensusProject.Abstractions
     public class UniformConsensus : Abstraction
     {
         private string _id;
-        private AppProccess _appProcces;
+        private AppProcess _appProcess;
         private AppSystem _appSystem;
         private Config _config;
         private AppLogger _logger;
+        private MessageBroker _messageBroker;
 
         //state
         private ProposeType _ucType;
@@ -21,13 +23,15 @@ namespace ConsensusProject.Abstractions
 
         public bool Decided { get { return _decided; } }
 
-        public UniformConsensus(string id, Config config, AppProccess appProcess, AppSystem appSystem)
+        public UniformConsensus(string id, Config config, AppProcess appProcess, AppSystem appSystem, MessageBroker messageBroker)
         {
             _id = id;
             _config = config;
             _logger = new AppLogger(_config, _id, appSystem.SystemId);
-            _appProcces = appProcess;
+            _appProcess = appProcess;
             _appSystem = appSystem;
+            _messageBroker = messageBroker;
+            _messageBroker.Subscribe(_appSystem.SystemId, _id, Handle);
 
             //state
             _ucType = ProposeType.SbacPrepare;
@@ -78,13 +82,13 @@ namespace ConsensusProject.Abstractions
             Message abort = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = $"ep{_ets}",
+                AbstractionId = $"{AbstractionType.Ep}{_ets}",
                 SystemId = _appSystem.SystemId,
                 Type = Message.Types.Type.EpAbort,
                 EpAbort = new EpAbort()
             };
 
-            _appProcces.EnqueMessage(abort);
+            _messageBroker.SendMessage(abort);
 
             return true;
         }
@@ -115,34 +119,34 @@ namespace ConsensusProject.Abstractions
                 Message decide = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = _id,
-                    SystemId = _appSystem.SystemId,
+                    AbstractionId = AbstractionType.Sbac.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.UcDecide,
                     UcDecide = new UcDecide
                     {
                         Value = message.EpDecide.Value
                     }
                 };
-                _appProcces.EnqueMessage(decide);
+                _messageBroker.SendMessage(decide);
             }
             return true;
         }
 
         private void HandleProposeValueIfLeader()
         {
-            if(_appProcces.CurrentShardLeader.Equals(_appSystem.CurrentProccess) && _proposed == false)
+            if(_appProcess.CurrentShardLeader.Equals(_appSystem.CurrentProcess) && _proposed == false)
             {
                 _logger.LogInfo($"LEADER creating a {Message.Types.Type.EpPropose} message.");
                 _proposed = true;
                 Message propose = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = $"ep{_ets}",
+                    AbstractionId = $"{AbstractionType.Ep}{_ets}",
                     SystemId = _appSystem.SystemId,
                     Type = Message.Types.Type.EpPropose,
                     EpPropose = new EpPropose()
                 };
-                _appProcces.EnqueMessage(propose);
+                _messageBroker.SendMessage(propose);
             }
         }
 
@@ -152,7 +156,7 @@ namespace ConsensusProject.Abstractions
             TransactionAction action;
             if (_ucType == ProposeType.SbacPrepare)
             {
-                action = _appProcces.GetPreparedAction(ucPropose.Transaction);
+                action = _appProcess.GetPreparedAction(ucPropose.Transaction);
                 value.Type = Value.Types.Type.SbacPrepared;
                 value.SbacPrepared = new SbacPrepared
                 {
@@ -163,7 +167,7 @@ namespace ConsensusProject.Abstractions
             }
             else
             {
-                action = _appProcces.GetAcceptAction(ucPropose.Transaction);
+                action = _appProcess.GetAcceptAction(ucPropose.Transaction);
                 value.Type = Value.Types.Type.SbacAccept;
                 value.SbacAccept = new SbacAccept
                 {

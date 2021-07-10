@@ -14,14 +14,15 @@ namespace ConsensusProject.Abstractions
         private Config _config;
         private AppLogger _logger;
         private TcpWrapper _tcpWrapper;
-        private Action<Message> _enqueueMessage;
+        private MessageBroker _messageBroker;
 
-        public PerfectLink(string id, Config c, Action<Message> enqueueMessage)
+        public PerfectLink(string id, Config c, AppProcess appProcess, MessageBroker messageBroker)
         {
             _id = id;
             _config = c;
-            _logger = new AppLogger(_config, id);
-            _enqueueMessage = enqueueMessage;
+            _logger = new AppLogger(_config, _id, appProcess.Id);
+            _messageBroker = messageBroker;
+            _messageBroker.Subscribe(appProcess.Id, _id, Handle);
             _tcpWrapper = new TcpWrapper(_config.NodeIpAddress, _config.NodePort);
             new Thread(() => {
                 _tcpWrapper.Start();
@@ -31,34 +32,58 @@ namespace ConsensusProject.Abstractions
 
         public bool Handle(Message message)
         {
-            Message networkMessage;
-            string destinationHost;
-            int destinationPort;
-            if(message.Type == Message.Types.Type.PlSend)
+            switch(message)
             {
-                destinationHost = message.PlSend.Destination.Host;
-                destinationPort = message.PlSend.Destination.Port;
+                case Message m when m.Type == Message.Types.Type.PlSend:
+                    return HandlePlSend(m);
+                case Message m when m.Type == Message.Types.Type.BebSend:
+                    return HandleBebSend(m);
+                default:
+                    return false;
+            }
+        }
 
-                networkMessage = new Message
+        public bool HandlePlSend(Message message)
+        {
+            string destinationHost = message.PlSend.Destination.Host;
+            int destinationPort = message.PlSend.Destination.Port;
+
+            Message networkMessage = new Message
+            {
+                MessageUuid = Guid.NewGuid().ToString(),
+                AbstractionId = message.PlSend.Message.AbstractionId,
+                SystemId = message.PlSend.Message.SystemId,
+                Type = Message.Types.Type.NetworkMessage,
+
+                NetworkMessage = new NetworkMessage
                 {
-                    MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = message.AbstractionId,
-                    SystemId = message.SystemId,
-                    Type = Message.Types.Type.NetworkMessage,
+                    SenderHost = _config.NodeIpAddress,
+                    SenderListeningPort = _config.NodePort,
+                    Message = message.PlSend.Message,
+                },
+            };
+            return SendMessage(networkMessage, destinationHost, destinationPort);
+        }
 
-                    NetworkMessage = new NetworkMessage
-                    {
-                        SenderHost = _config.NodeIpAddress,
-                        SenderListeningPort = _config.NodePort,
-                        Message = message.PlSend.Message,
-                    },
-                };
-            }
-            else
+        public bool HandleBebSend(Message message)
+        {
+            string destinationHost = message.BebSend.Destination.Host;
+            int destinationPort = message.BebSend.Destination.Port;
+
+            Message networkMessage = new Message
             {
-                return false;
-            }
+                MessageUuid = Guid.NewGuid().ToString(),
+                AbstractionId = AbstractionType.Beb.ToString(),
+                SystemId = message.SystemId,
+                Type = Message.Types.Type.NetworkMessage,
 
+                NetworkMessage = new NetworkMessage
+                {
+                    SenderHost = _config.NodeIpAddress,
+                    SenderListeningPort = _config.NodePort,
+                    Message = message.BebSend.Message,
+                },
+            };
             return SendMessage(networkMessage, destinationHost, destinationPort);
         }
 
@@ -124,7 +149,7 @@ namespace ConsensusProject.Abstractions
                 if (message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatReply && message.NetworkMessage.Message.Type != Message.Types.Type.EpfdHeartbeatRequest)
                     _logger.LogInfo($"Received from {message.NetworkMessage.SenderHost}:{message.NetworkMessage.SenderListeningPort} a {message.NetworkMessage.Message.Type} message.");
                 
-                _enqueueMessage(newMessage);
+                _messageBroker.SendMessage(newMessage);
                 
             }
             catch (Exception e)

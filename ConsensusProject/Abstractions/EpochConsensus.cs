@@ -1,18 +1,19 @@
 ﻿using ConsensusProject.App;
 using ConsensusProject.Messages;
+using ConsensusProject.Utils;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace ConsensusProject.Abstractions
 {
     public class EpochConsensus : Abstraction
     {
         private string _id;
-        private AppProccess _appProcces;
+        private AppProcess _appProcess;
         private AppSystem _appSystem;
         private Config _config;
         private AppLogger _logger;
+        private MessageBroker _messageBroker;
 
         //state
         private int _ets;
@@ -22,13 +23,15 @@ namespace ConsensusProject.Abstractions
         private bool _aborted;
         private Value _tmpVal;
 
-        public EpochConsensus(string id, Config config, AppProccess appProcess, AppSystem appSystem, int ets, EpState_ state)
+        public EpochConsensus(string id, Config config, AppProcess appProcess, AppSystem appSystem, int ets, EpState_ state, MessageBroker messageBroker)
         {
             _id = id;
             _config = config;
             _logger = new AppLogger(_config, _id, appSystem.SystemId);
-            _appProcces = appProcess;
+            _appProcess = appProcess;
             _appSystem = appSystem;
+            _messageBroker = messageBroker;
+            _messageBroker.Subscribe(_appSystem.SystemId, _id, Handle);
 
             //state
             _ets = ets;
@@ -67,15 +70,15 @@ namespace ConsensusProject.Abstractions
         private bool HandleEpPropose(Message message)
         {
             _logger.LogInfo($"Trying to handler the message type {Message.Types.Type.EpPropose}.");
-            if (_appProcces.IsLeader)
+            if (_appProcess.IsLeader)
             {
                 _logger.LogInfo($"LEADER handling the message type {Message.Types.Type.EpPropose}.");
 
                 Message read = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = "beb",
-                    SystemId = _appSystem.SystemId,
+                    AbstractionId = AbstractionType.Beb.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.BebBroadcast,
                     BebBroadcast = new BebBroadcast
                     {
@@ -90,7 +93,7 @@ namespace ConsensusProject.Abstractions
                     }
                 };
 
-                _appProcces.EnqueMessage(read);
+                _messageBroker.SendMessage(read);
 
                 return true;
             }
@@ -104,8 +107,8 @@ namespace ConsensusProject.Abstractions
             Message plSend = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = "pl",
-                SystemId = _appSystem.SystemId,
+                AbstractionId = AbstractionType.Pl.ToString(),
+                SystemId = _appProcess.Id,
                 Type = Message.Types.Type.PlSend,
                 PlSend = new PlSend
                 {
@@ -121,19 +124,19 @@ namespace ConsensusProject.Abstractions
                 }
             };
 
-            _appProcces.EnqueMessage(plSend);
+            _messageBroker.SendMessage(plSend);
 
             return true;
         }
         private bool HandleEpState(Message message)
         {
-            _logger.LogInfo($"Chacking if is leader: {_appProcces.IsLeader}");
-            if (_appProcces.IsLeader)
+            _logger.LogInfo($"Chacking if is leader: {_appProcess.IsLeader}");
+            if (_appProcess.IsLeader)
             {
-                var sender = _appProcces.ShardNodes.Find(it => it.Host == message.PlDeliver.Sender.Host && it.Port == message.PlDeliver.Sender.Port);
+                var sender = _appProcess.ShardNodes.Find(it => it.Host == message.PlDeliver.Sender.Host && it.Port == message.PlDeliver.Sender.Port);
                 if (sender == null) return false;
                 
-                _logger.LogInfo($"Handling the message type {Message.Types.Type.EpState}. Received state from {sender.Owner}-{sender.Owner} with rank {sender.Rank}");
+                _logger.LogInfo($"Handling the message type {Message.Types.Type.EpState}. Received state from {sender.Owner}-{sender.Index} with rank {sender.Rank}");
 
                 _states[sender.Rank] = message.PlDeliver.Message.EpState;
 
@@ -147,7 +150,7 @@ namespace ConsensusProject.Abstractions
         private void HandleMajorityHit()
         {
             _logger.LogInfo($"Checking if majority is hit ({_states.Values.Count} > {_appSystem.NrOfProcesses / 2}).");
-            if (_states.Values.Count == _appSystem.NrOfProcesses)
+            if (_states.Values.Count > _appSystem.NrOfProcesses / 2)
             {
                 _logger.LogInfo($"Majority hit! Creating the message type {Message.Types.Type.EpWrite}.");
                 var finalState = GetFinalState();
@@ -159,8 +162,8 @@ namespace ConsensusProject.Abstractions
                 Message write = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = "beb",
-                    SystemId = _appSystem.SystemId,
+                    AbstractionId = AbstractionType.Beb.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.BebBroadcast,
                     BebBroadcast = new BebBroadcast
                     {
@@ -178,7 +181,7 @@ namespace ConsensusProject.Abstractions
                     }
                 };
 
-                _appProcces.EnqueMessage(write);
+                _messageBroker.SendMessage(write);
             }
         }
 
@@ -239,8 +242,8 @@ namespace ConsensusProject.Abstractions
             Message accept = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = "pl",
-                SystemId = _appSystem.SystemId,
+                AbstractionId = AbstractionType.Pl.ToString(),
+                SystemId = _appProcess.Id,
                 Type = Message.Types.Type.PlSend,
                 PlSend = new PlSend
                 {
@@ -256,13 +259,13 @@ namespace ConsensusProject.Abstractions
                 }
             };
 
-            _appProcces.EnqueMessage(accept);
+            _messageBroker.SendMessage(accept);
 
             return true;
         }
         private bool HandleEpAccept(Message message)
         {
-            if (_appProcces.IsLeader)
+            if (_appProcess.IsLeader)
             {
                 _logger.LogInfo($"Handling the message type {Message.Types.Type.EpAccept}.");
 
@@ -277,14 +280,14 @@ namespace ConsensusProject.Abstractions
 
         private void HandleMajorityAccepted()
         {
-            if (_accepted == _appSystem.NrOfProcesses)
+            if (_accepted > _appSystem.NrOfProcesses / 2)
             {
                 _logger.LogInfo($"Majority accepted! Creating the message type {Message.Types.Type.EpDecided}.");
                 Message decided = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = "beb",
-                    SystemId = _appSystem.SystemId,
+                    AbstractionId = AbstractionType.Beb.ToString(),
+                    SystemId = _appProcess.Id,
                     Type = Message.Types.Type.BebBroadcast,
                     BebBroadcast = new BebBroadcast
                     {
@@ -302,7 +305,7 @@ namespace ConsensusProject.Abstractions
                     }
                 };
                 
-                _appProcces.EnqueMessage(decided);
+                _messageBroker.SendMessage(decided);
             }
         }
         private bool HandleEpDecided(Message message)
@@ -312,7 +315,7 @@ namespace ConsensusProject.Abstractions
             Message decide = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = _id,
+                AbstractionId = AbstractionType.Uc.ToString(),
                 SystemId = _appSystem.SystemId,
                 Type = Message.Types.Type.EpDecide,
                 EpDecide = new EpDecide
@@ -322,7 +325,7 @@ namespace ConsensusProject.Abstractions
                 }
             };
 
-            _appProcces.EnqueMessage(decide);
+            _messageBroker.SendMessage(decide);
 
             return true;
         }
@@ -334,7 +337,7 @@ namespace ConsensusProject.Abstractions
             Message aborted = new Message
             {
                 MessageUuid = Guid.NewGuid().ToString(),
-                AbstractionId = _id,
+                AbstractionId = AbstractionType.Uc.ToString(),
                 SystemId = _appSystem.SystemId,
                 Type = Message.Types.Type.EpAborted,
                 EpAborted = new EpAborted
@@ -345,7 +348,7 @@ namespace ConsensusProject.Abstractions
                 }
             };
 
-            _appProcces.EnqueMessage(aborted);
+            _messageBroker.SendMessage(aborted);
 
             return true;
         }

@@ -26,9 +26,7 @@ namespace ConsensusProject
                         Delay = 100,
                         EpochIncrement = 1,
                     };
-                    AppProccess appProccess1 = new AppProccess(config);
-
-                    appProccess1.Run();
+                    AppProcess appProcess = new AppProcess(config);
                 }
                 else
                 {

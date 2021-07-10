@@ -1,22 +1,20 @@
 ﻿using ConsensusProject.Abstractions;
 using ConsensusProject.Messages;
 using ConsensusProject.Utils;
-using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reactive.Subjects;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace ConsensusProject.App
 {
-    public class AppProccess
+    public class AppProcess
     {
+        public string Id { get; set; }
         private Config _config;
         private AppLogger _logger;
         private List<Transaction> _transactions = new List<Transaction>();
         private readonly object balanceLock = new object();
+        private MessageBroker _messageBroker;
         private ConcurrentDictionary<string, Message> _messagesMap = new ConcurrentDictionary<string, Message>();
         private ConcurrentDictionary<string, List<ProcessId>> _networkNodes = new ConcurrentDictionary<string, List<ProcessId>>();
         private ConcurrentDictionary<string, Abstraction> _abstractions = new ConcurrentDictionary<string, Abstraction>();
@@ -25,14 +23,15 @@ namespace ConsensusProject.App
         public ConcurrentDictionary<string, bool> AccountLocks = new ConcurrentDictionary<string, bool>();
         public ConcurrentDictionary<string, AppSystem> AppSystems { get; set; } = new ConcurrentDictionary<string, AppSystem>();
         public ConcurrentDictionary<string, List<SbacLocalPrepared>> LocalPreparedPerTransaction = new ConcurrentDictionary<string, List<SbacLocalPrepared>>();
-  
-        public AppProccess(Config config)
+        
+        public AppProcess(Config config)
         {
+            Id = "MainSystem";
             _messagesMap = new ConcurrentDictionary<string, Message>();
             AppSystems = new ConcurrentDictionary<string, AppSystem>();
             _config = config;
-            _logger = new AppLogger(config, "AppProccess");
-
+            _logger = new AppLogger(config, "AppProcess", Id);
+            _messageBroker = new MessageBroker(config);
             InitializeCommunicationAbstractions();
         }
 
@@ -42,38 +41,6 @@ namespace ConsensusProject.App
         public List<ProcessId> GetShardNodes(string shardId) => _networkNodes.GetValueOrDefault(shardId);
 
         public int NetworkVersion { get; internal set; } = 0;
-
-        public void Run()
-        {
-            while (true)
-            {
-                if (Messages.Count == 0)
-                {
-                    Thread.Sleep(500);
-                }
-                else
-                {
-                    try
-                    {
-                        Parallel.ForEach(Messages, (message) =>
-                        {
-                            foreach (var abstraction in _abstractions.Values)
-                            {
-                                if (abstraction.Handle(message))
-                                {
-                                    DequeMessage(message);
-                                    break;
-                                }
-                            }
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex.ToString());
-                    }
-                }
-            }
-        }
 
         public bool IsLeader { get { return CurrentShardLeader.Equals(CurrentProccess); } }
 
@@ -156,16 +123,34 @@ namespace ConsensusProject.App
 
         public void InitializeCommunicationAbstractions()
         {
-            _abstractions.TryAdd("pl", new PerfectLink("pl", _config, EnqueMessage));
-            _abstractions.TryAdd("beb", new BestEffortBroadcast("beb", _config, this));
-            _abstractions.TryAdd("cp", new ClientProxy(_config, this));
-            _abstractions.TryAdd("sbac", new ShardedByzantineAtomicCommit(this, _logger, _config));
+            _abstractions.TryAdd(
+                AbstractionType.Pl.ToString(),
+                new PerfectLink(AbstractionType.Pl.ToString(), _config, this, _messageBroker
+            ));
+            _abstractions.TryAdd(
+                AbstractionType.Beb.ToString(),
+                new BestEffortBroadcast(AbstractionType.Beb.ToString(), _config, this, _messageBroker
+            ));
+            _abstractions.TryAdd(
+                AbstractionType.Cp.ToString(),
+                new ClientProxy(AbstractionType.Cp.ToString(), _config, this, _messageBroker
+            ));
+            _abstractions.TryAdd(
+                AbstractionType.Sbac.ToString(),
+                new ShardedByzantineAtomicCommit(AbstractionType.Sbac.ToString(), this, _config, _messageBroker
+            ));
         }
 
         public void InitializeLeaderMaintenanceAbstractions()
         {
-            _abstractions.TryAdd("eld", new EventualLeaderDetector("eld", _config, this));
-            _abstractions.TryAdd("epfd", new EventuallyPerfectFailureDetector("epfd", _config, this));
+            _abstractions.TryAdd(
+                AbstractionType.Eld.ToString(),
+                new EventualLeaderDetector(AbstractionType.Eld.ToString(), _config, this, _messageBroker
+            ));
+            _abstractions.TryAdd(
+                AbstractionType.Epfd.ToString(),
+                new EventuallyPerfectFailureDetector(AbstractionType.Epfd.ToString(), _config, this, _messageBroker
+            ));
         }
 
         public void PrintTransactions()

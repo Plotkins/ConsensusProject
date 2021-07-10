@@ -148,6 +148,20 @@ message Transaction {
     }
 }
 
+enum AbstractionType {
+    NONE = 0;
+    BEB = 1;
+    PL = 2;
+    EPFD = 3;
+    ELD = 4;
+    EC = 5;
+    EP = 6;
+    UC = 7;
+    SBAC = 8;
+    CP = 9;
+    HUB = 10;
+}
+
 // Messages and events
 // APP
 message NewNodeRegistered {
@@ -265,7 +279,11 @@ message BebBroadcast {
     Message message = 1;
     repeated ProcessId processes = 2;
     Type type = 3;
+}
 
+message BebSend {
+    ProcessId destination = 1;
+    Message message = 2;
 }
 
 message BebDeliver {
@@ -423,6 +441,7 @@ message Message {
 
         BEB_BROADCAST = 40;
         BEB_DELIVER = 41;
+        BEB_SEND = 42;
 
         ELD_TIMEOUT = 50;
         ELD_TRUST = 51;
@@ -488,6 +507,7 @@ message Message {
 
     BebBroadcast bebBroadcast = 40;
     BebDeliver bebDeliver = 41;
+    BebSend bebSend = 42;
 
     EldTimeout eldTimeout = 50;
     EldTrust eldTrust = 51;

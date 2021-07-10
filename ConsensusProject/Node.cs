@@ -24,11 +24,9 @@ namespace ConsensusProject
                     EpochIncrement = 1
                 };
 
-                AppProccess appProccess = new AppProccess(config);
-
                 mainThread = new Thread(() =>
                 {
-                    appProccess.Run();
+                    AppProcess appProcess = new AppProcess(config);
                 });
 
                 mainThread.Start();

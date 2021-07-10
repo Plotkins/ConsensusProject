@@ -43,6 +43,7 @@ namespace Hub
         private MessageBroker _broker;
         private AppLogger _logger;
         private Config _config;
+        private string processId = "MainSystem";
 
         public HubServer(Config config)
         {
@@ -107,7 +108,6 @@ namespace Hub
                 {
                     MessageUuid = NewId,
                     Type = Message.Types.Type.NetworkMessage,
-                    SystemId = NewId,
                     NetworkMessage = new NetworkMessage
                     {
                         SenderHost = _config.HubIpAddress,
@@ -115,7 +115,6 @@ namespace Hub
                         Message = new Message
                         {
                             MessageUuid = NewId,
-                            SystemId = NewId,
                             Type = Message.Types.Type.DeployNodes,
                             DeployNodes = new DeployNodes()
                         }
@@ -253,8 +252,9 @@ namespace Hub
                     Message deposit = new Message
                     {
                         MessageUuid = NewId,
+                        AbstractionId = AbstractionType.Sbac.ToString(),
+                        SystemId = processId,
                         Type = Message.Types.Type.NetworkMessage,
-                        SystemId = NewId,
                         NetworkMessage = new NetworkMessage
                         {
                             SenderHost = _config.HubIpAddress,
@@ -262,7 +262,8 @@ namespace Hub
                             Message = new Message
                             {
                                 MessageUuid = NewId,
-                                SystemId = NewId,
+                                AbstractionId = AbstractionType.Sbac.ToString(),
+                                SystemId = processId,
                                 Type = Message.Types.Type.SbacPrepare,
                                 SbacPrepare = sbacPrepare
                             }
@@ -359,7 +360,8 @@ namespace Hub
                 Message appRegisterReply = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),
-                    AbstractionId = "pl",
+                    AbstractionId = AbstractionType.Cp.ToString(),
+                    SystemId = processId,
                     Type = Message.Types.Type.NetworkMessage,
                     NetworkMessage = new NetworkMessage
                     {
@@ -368,6 +370,8 @@ namespace Hub
                         Message = new Message
                         {
                             MessageUuid = Guid.NewGuid().ToString(),
+                            AbstractionId = AbstractionType.Cp.ToString(),
+                            SystemId = processId,
                             Type = Message.Types.Type.AppRegistrationReply,
                             AppRegistrationReply = reply
                         }
