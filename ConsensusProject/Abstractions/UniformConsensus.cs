@@ -116,6 +116,7 @@ namespace ConsensusProject.Abstractions
             if (!_decided)
             {
                 _decided = true;
+                _messageBroker.UnsubscribeGroup(_appSystem.SystemId);
                 Message decide = new Message
                 {
                     MessageUuid = Guid.NewGuid().ToString(),

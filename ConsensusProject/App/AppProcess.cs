@@ -35,6 +35,8 @@ namespace ConsensusProject.App
             InitializeCommunicationAbstractions();
         }
 
+        ~AppProcess() => _messageBroker.UnsubscribeGroup(Id);
+
         public List<ProcessId> ShardNodes => _networkNodes.GetValueOrDefault(_config.Alias);
         public List<ProcessId> NetworkLeaders => _shardLeaders.Values.ToList();
         public List<ProcessId> NetworkNodes => _networkNodes.Values.SelectMany(it => it).ToList();
