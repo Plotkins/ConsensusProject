@@ -10,18 +10,22 @@ namespace ConsensusProject.Utils
     public class MessageQueue
     {
         private AppLogger _logger;
+        private Thread _thread;
+        private bool _isRunning;
 
         public MessageQueue(Func<Message, bool> func, AppLogger logger)
         {
             Func = func;
             Messages = new ConcurrentQueue<Message>();
-            new Thread(() => Listen()).Start();
+            _isRunning = true;
+            _thread = new Thread(() => Listen());
+            _thread.Start();
             _logger = logger;
         }
 
         public void Listen()
         {
-            while (true)
+            while (_isRunning)
             {
                 if (Messages.IsEmpty)
                 {
@@ -42,11 +46,18 @@ namespace ConsensusProject.Utils
                     }
                 }
             }
+            _logger.LogInfo("Terminated thread.");
         }
 
         public ConcurrentQueue<Message> Messages { get; set; }
 
         public Func<Message, bool> Func { get; set; }
+
+        public void Terminate()
+        {
+            _logger.LogInfo("Terminating thread...");
+            _isRunning = false;
+        }
 
     }
     public class MessageBroker
@@ -75,6 +86,7 @@ namespace ConsensusProject.Utils
         {
             if (_topics.ContainsKey(group) && _topics[group].ContainsKey(queue.ToString()))
             {
+                _topics[group][queue].Terminate();
                 _topics[group].Remove(queue.ToString());
             }
             if (_topics[group].Keys.Count == 0)
@@ -87,6 +99,10 @@ namespace ConsensusProject.Utils
         {
             if (_topics.ContainsKey(group))
             {
+                foreach(var queue in _topics[group].Values)
+                {
+                    queue.Terminate();
+                }
                 _topics.Remove(group);
             }
         }
